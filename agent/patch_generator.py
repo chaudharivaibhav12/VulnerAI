@@ -1,13 +1,46 @@
 """
 Patch Generator
 ───────────────
-Generates realistic, security-hardened file patches for each known CVE.
-Each patch applies both the version fix AND defense-in-depth config hardening.
+Generates realistic, security-hardened file patches for each known CVE
+or web-app vuln in vuln_catalog.ndjson.
 
-Returns list of {path, content} dicts ready to be committed to a GitHub branch.
+  - CVE-* ids: pulled from the hardcoded CVE_PATCH_SPECS dict below
+                (infrastructure-level config patches).
+  - VULN-* ids: looked up in vuln_catalog.ndjson; the patch replaces the
+                vulnerable file_path with the hardened content of the
+                catalog's reference_patch_file (DVWA-style impossible.php).
+  - Unknown id: generic requirements.txt bump (defensive fallback).
+
+Returns list of {path, content, commit_message?} dicts ready to be committed
+to a GitHub branch by agent/tools.py::create_patch_pr.
 """
 
+import json
+import os
 from typing import Optional
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_CATALOG_PATH = os.path.join(_REPO_ROOT, "vuln_catalog.ndjson")
+_VULN_CATALOG_CACHE: dict[str, dict] | None = None
+
+
+def _load_catalog_row(vuln_id: str) -> Optional[dict]:
+    """Return the vuln_catalog.ndjson row for vuln_id, or None if not found."""
+    global _VULN_CATALOG_CACHE
+    if _VULN_CATALOG_CACHE is None:
+        _VULN_CATALOG_CACHE = {}
+        try:
+            with open(_CATALOG_PATH, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    if row.get("vuln_id"):
+                        _VULN_CATALOG_CACHE[row["vuln_id"]] = row
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"[patch_generator] could not load catalog: {e}")
+    return _VULN_CATALOG_CACHE.get(vuln_id)
 
 
 CVE_PATCH_SPECS: dict[str, dict] = {
@@ -333,13 +366,42 @@ python-samba==4.18.0
 
 def generate_patches(cve_id: str, cve_data: Optional[dict] = None) -> list[dict]:
     """
-    Returns list of {path, content} dicts for the given CVE.
-    Falls back to a generic requirements.txt bump if CVE is unknown.
+    Returns list of {path, content[, commit_message]} dicts for the given vuln.
+
+      VULN-*   : catalog-driven — replaces vulnerable file_path with the
+                 hardened reference_patch_file content.
+      CVE-*    : looked up in CVE_PATCH_SPECS (hardcoded infra patches).
+      unknown  : generic requirements.txt bump.
     """
+    # ── VULN-* catalog entries (DVWA-style web-app vulns) ───────────────────
+    if cve_id.startswith("VULN-"):
+        row = _load_catalog_row(cve_id)
+        if row:
+            ref_path = row.get("reference_patch_file") or ""
+            dst_path = row.get("file_path") or ""
+            ref_abs  = os.path.join(_REPO_ROOT, ref_path)
+            if ref_path and dst_path and os.path.exists(ref_abs):
+                with open(ref_abs, "r", encoding="utf-8") as f:
+                    content = f.read()
+                return [{
+                    "path":           dst_path,
+                    "content":        content,
+                    "commit_message": (
+                        f"Fix {cve_id}: {row.get('name', 'security fix')} "
+                        f"({row.get('cwe', '')})"
+                    ),
+                }]
+            print(
+                f"[patch_generator] {cve_id}: reference file not found at "
+                f"{ref_abs} — using generic fallback"
+            )
+
+    # ── Known CVE-* infrastructure patches ──────────────────────────────────
     spec = CVE_PATCH_SPECS.get(cve_id)
     if spec:
         return spec["files"]
 
+    # ── Generic fallback ────────────────────────────────────────────────────
     if cve_data:
         pkg = cve_data.get("package_name", "unknown-package")
         fixed = cve_data.get("fixed_version", "latest")

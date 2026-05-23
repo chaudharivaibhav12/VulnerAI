@@ -27,9 +27,10 @@ from clickhouse.mock_client import (
     replace_triage_results, fetch_all,
     insert_pr_log, fetch_pr_context,
 )
-from agent.patch_generator import generate_patches
+from agent.patch_generator import generate_patches, _load_catalog_row
 from agent.github_tools import (
-    get_base_sha, create_branch, commit_file, create_pull_request
+    get_base_sha, create_branch, commit_file,
+    create_pull_request, create_vuln_pull_request,
 )
 from agent.models import PRLog
 
@@ -554,65 +555,112 @@ def execute_remediation(cve_id: str, host_id: str, host_ip: str) -> dict:
 # Tool 6: Create Patch PR on GitHub
 # ─────────────────────────────────────────────────────────────
 
+def _slugify(s: str) -> str:
+    """Tiny slugifier — alnum + hyphens, lowercased, capped at 40 chars."""
+    out = re.sub(r"[^a-zA-Z0-9]+", "-", (s or "")).strip("-").lower()
+    return (out or "patch")[:40]
+
+
+def _load_ranking_entry(vuln_id: str) -> dict | None:
+    """Read pipeline_output.json and return the ranking entry for vuln_id, if any."""
+    path = os.path.join(ROOT, "pipeline_output.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    for r in (data.get("ranking") or {}).get("rankings", []) or []:
+        if r.get("vuln_id") == vuln_id:
+            return r
+    return None
+
+
 def create_patch_pr(cve_id: str, host_id: str, host_ip: str) -> dict:
     """
-    Creates a GitHub branch, commits security-hardened patch files, and opens a PR.
-    All metadata is fetched from ClickHouse — call after execute_remediation.
+    Creates a GitHub branch, commits the patch file(s), and opens a PR.
+
+      - VULN-* ids: catalog-driven (patch = reference impossible.php content);
+                    PR body uses the rich VULN template with Ranking Agent evidence.
+      - CVE-* ids:  ClickHouse-driven (existing flow); CVE-style PR body.
+
     DRY_RUN=true (default) logs intent without making real GitHub API calls.
     """
     print(f"[tool] create_patch_pr(cve_id={cve_id}, host_ip={host_ip})")
 
-    # Fetch full context from ClickHouse JOIN
-    ctx = fetch_pr_context(cve_id, host_ip)
-    if not ctx:
-        return {
-            "status": "error",
-            "cve_id": cve_id,
-            "error": "No context found in ClickHouse — ensure triage and remediation ran first",
-        }
+    is_vuln = cve_id.startswith("VULN-")
 
-    # Generate patch files for this CVE
-    patches = generate_patches(cve_id, ctx)
+    # ── Build context ───────────────────────────────────────────────────────
+    if is_vuln:
+        catalog_row = _load_catalog_row(cve_id) or {}
+        if not catalog_row:
+            return {"status": "error", "cve_id": cve_id,
+                    "error": f"{cve_id} not found in vuln_catalog.ndjson"}
+        ranking_entry = _load_ranking_entry(cve_id)
+        # patch_generator only needs the id for VULN-* (it reads the catalog itself)
+        patches = generate_patches(cve_id)
+    else:
+        catalog_row = {}
+        ranking_entry = None
+        ctx = fetch_pr_context(cve_id, host_ip)
+        if not ctx:
+            return {"status": "error", "cve_id": cve_id,
+                    "error": "No context found in ClickHouse — ensure triage and remediation ran first"}
+        patches = generate_patches(cve_id, ctx)
+
     if not patches:
-        return {
-            "status": "error",
-            "cve_id": cve_id,
-            "error": "No patch files generated — CVE may not have a known patch spec",
-        }
+        return {"status": "error", "cve_id": cve_id,
+                "error": "No patch files generated — vuln has no known patch spec"}
 
-    pkg_slug = ctx.get("package_name", "package").replace("_", "-").replace(" ", "-")
-    branch_name = f"autopatch/{cve_id}-{pkg_slug}"
+    # ── Randomized branch name ──────────────────────────────────────────────
+    slug   = _slugify(catalog_row.get("name") if is_vuln else ctx.get("package_name", "package"))
+    suffix = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    branch_name = f"autopatch/{cve_id}-{slug}-{suffix}"
 
-    # Create branch from latest base
+    # ── Create branch + commit patch files ──────────────────────────────────
     base_sha = get_base_sha()
     create_branch(branch_name, base_sha)
 
-    # Commit each patch file
     patch_file_paths = []
     for patch in patches:
-        msg = f"fix({cve_id}): update {patch['path']} — {ctx.get('package_name', '')} {ctx.get('affected_version', '')} → {ctx.get('fixed_version', '')}"
+        if is_vuln:
+            msg = patch.get("commit_message") or f"fix({cve_id}): replace {patch['path']} with hardened version"
+        else:
+            msg = (
+                f"fix({cve_id}): update {patch['path']} — "
+                f"{ctx.get('package_name', '')} {ctx.get('affected_version', '')} → "
+                f"{ctx.get('fixed_version', '')}"
+            )
         commit_file(branch_name, patch["path"], patch["content"], msg)
         patch_file_paths.append(patch["path"])
 
-    # Open the PR
-    pr = create_pull_request(
-        branch_name=branch_name,
-        cve_id=cve_id,
-        cvss_score=ctx.get("cvss_score", 0.0),
-        package_name=ctx.get("package_name", ""),
-        affected_version=ctx.get("affected_version", ""),
-        fixed_version=ctx.get("fixed_version", ""),
-        host_name=ctx.get("host_name", ""),
-        host_ip=host_ip,
-        priority=ctx.get("priority", "CRITICAL"),
-        reason=ctx.get("reason", ""),
-        has_active_exploit=bool(ctx.get("has_active_exploit")),
-        is_internet_exposed=bool(ctx.get("is_internet_exposed")),
-        exploit_sources=ctx.get("exploit_sources", []),
-        action_taken=ctx.get("action_taken", ""),
-        remediation_outcome=ctx.get("remediation_outcome", ""),
-        patch_files=patch_file_paths,
-    )
+    # ── Open the PR (VULN- or CVE-style body) ───────────────────────────────
+    if is_vuln:
+        pr = create_vuln_pull_request(
+            branch_name=branch_name,
+            vuln_id=cve_id,
+            catalog_row=catalog_row,
+            ranking_entry=ranking_entry,
+            patch_files=patch_file_paths,
+        )
+    else:
+        pr = create_pull_request(
+            branch_name=branch_name,
+            cve_id=cve_id,
+            cvss_score=ctx.get("cvss_score", 0.0),
+            package_name=ctx.get("package_name", ""),
+            affected_version=ctx.get("affected_version", ""),
+            fixed_version=ctx.get("fixed_version", ""),
+            host_name=ctx.get("host_name", ""),
+            host_ip=host_ip,
+            priority=ctx.get("priority", "CRITICAL"),
+            reason=ctx.get("reason", ""),
+            has_active_exploit=bool(ctx.get("has_active_exploit")),
+            is_internet_exposed=bool(ctx.get("is_internet_exposed")),
+            exploit_sources=ctx.get("exploit_sources", []),
+            action_taken=ctx.get("action_taken", ""),
+            remediation_outcome=ctx.get("remediation_outcome", ""),
+            patch_files=patch_file_paths,
+        )
 
     # Log to ClickHouse pr_log
     log = PRLog(
