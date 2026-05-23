@@ -307,6 +307,8 @@ def fetch_all(table: str) -> list[dict]:
 
 def reset_db():
     """Wipe all data — useful for re-running the demo."""
+    # Ensure schema exists even if the DB file was created by an older version.
+    init_db()
     conn = _get_conn()
     cur = conn.cursor()
     for table in ["cve_findings", "exploit_intel", "exposure_checks",

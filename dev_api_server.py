@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, urlparse
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_OUTPUT_PATH = os.path.join(ROOT, "pipeline_output.json")
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
@@ -63,6 +64,10 @@ def _safe_read_json(path: str) -> dict | None:
         return None
     except json.JSONDecodeError:
         return None
+
+
+def _load_pipeline_output() -> dict | None:
+    return _safe_read_json(PIPELINE_OUTPUT_PATH)
 
 
 def _load_db_rows(table: str) -> list[dict]:
@@ -313,6 +318,89 @@ def _build_report_markdown() -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _build_ranking_report_markdown(output: dict) -> str:
+    ranking = (output or {}).get("ranking") or {}
+    rankings = ranking.get("rankings") or []
+    remediated = (output or {}).get("remediated") or []
+    deferred = (output or {}).get("deferred") or []
+    prs = (output or {}).get("pull_requests") or []
+
+    generated_at = ranking.get("generated_at") or ""
+    window = ranking.get("window") or ""
+    explanation = ranking.get("explanation") or ""
+
+    lines: list[str] = []
+    lines.append("# AutoPatch-Agent Security Posture Report")
+    if generated_at:
+        lines.append(f"**Generated:** {generated_at} | **Window:** {window}")
+    lines.append("")
+
+    if explanation:
+        lines.append("## Rank-Flip Insight")
+        lines.append(explanation)
+        lines.append("")
+
+    if rankings:
+        top = rankings[0]
+        lines.append("## Top Pick (Patch First)")
+        lines.append(f"- **Rank:** #{top.get('rank')}")
+        lines.append(f"- **Vuln:** `{top.get('vuln_id')}`")
+        lines.append(f"- **Composite Score:** **{top.get('composite_score')}**")
+        if top.get("sample_trace_id"):
+            lines.append(f"- **Sample trace_id:** `{top.get('sample_trace_id')}`")
+        if top.get("sample_payload"):
+            payload = str(top.get("sample_payload")).replace("\n", " ")
+            lines.append(f"- **Sample payload:** `{payload}`")
+        lines.append("")
+
+        lines.append("## Rankings")
+        lines.append("")
+        lines.append("| Rank | Vuln | Composite | Active | External | Static | Reasoning |")
+        lines.append("|------|------|-----------|--------|----------|--------|-----------|")
+        for r in rankings:
+            ss = r.get("sub_scores") or {}
+            reasoning = str(r.get("reasoning") or "").replace("\n", " ")
+            lines.append(
+                f"| {r.get('rank')} | {r.get('vuln_id')} | {r.get('composite_score')} | "
+                f"{ss.get('active_exploitation')} | {ss.get('external_pressure')} | {ss.get('static_severity')} | {reasoning} |"
+            )
+        lines.append("")
+
+    if remediated:
+        lines.append("## Remediated")
+        lines.append("")
+        for r in remediated:
+            lines.append(f"- **#{r.get('rank')} {r.get('vuln_id')}** (composite {r.get('composite_score')}): `{r.get('outcome')}`")
+            if r.get("action"):
+                lines.append(f"  - Action: {r.get('action')}")
+        lines.append("")
+
+    if prs:
+        lines.append("## Pull Requests")
+        lines.append("")
+        for pr in prs:
+            lines.append(f"- **#{pr.get('rank')} {pr.get('vuln_id')}**: {pr.get('pr_status')} — {pr.get('pr_url')}")
+            if pr.get("branch"):
+                lines.append(f"  - Branch: `{pr.get('branch')}`")
+            if pr.get("files_patched") is not None:
+                lines.append(f"  - Files patched: {pr.get('files_patched')}")
+        lines.append("")
+
+    if deferred:
+        lines.append("## Deferred")
+        lines.append("")
+        for d in deferred:
+            lines.append(f"- **#{d.get('rank')} {d.get('vuln_id')}** (composite {d.get('composite_score')}): {d.get('reason')}")
+        lines.append("")
+
+    if not any([rankings, remediated, deferred, prs]):
+        lines.append("## Note")
+        lines.append("No pipeline output found yet. Run the agent once.")
+        lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 class _RunState:
     lock = threading.Lock()
     running = False
@@ -338,6 +426,12 @@ def _run_pipeline(reset: bool):
         if reset:
             reset_db()
         summary = run_llm_pipeline(verbose=True)
+        # Persist for the frontend to consume.
+        try:
+            with open(PIPELINE_OUTPUT_PATH, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+        except Exception:
+            pass
         with _RunState.lock:
             _RunState.last_summary = summary
     except Exception as e:
@@ -371,14 +465,22 @@ class Handler(BaseHTTPRequestHandler):
                 last_run = _RunState.last_finished_at
                 last_error = _RunState.last_error
 
-            triage = _load_db_rows("triage_results")
-            status = "RUNNING" if running else ("HARDENED" if triage else "IDLE")
+            output = _load_pipeline_output()
+            if running:
+                status = "running"
+            elif last_error:
+                status = "error"
+            elif output:
+                status = "done"
+            else:
+                status = "idle"
 
             payload = {
                 "status": status,
                 "running": running,
                 "last_run": last_run,
                 "last_error": last_error,
+                "output": output,
             }
             _json_response(self, 200, payload)
             return
@@ -396,7 +498,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/report":
-            md = _build_report_markdown()
+            output = _load_pipeline_output()
+            if output and output.get("ranking"):
+                md = _build_ranking_report_markdown(output)
+            else:
+                md = _build_report_markdown()
             ready = bool(md and md.strip())
             _json_response(self, 200, {"ready": ready, "markdown": md if ready else None})
             return
