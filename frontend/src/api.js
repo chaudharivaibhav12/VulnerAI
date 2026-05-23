@@ -91,9 +91,10 @@ export function openAgentStream({ onLine, onDone }) {
           const res = await fetch(`${BASE_URL}/api/status`)
           if (!res.ok) return
           const { status } = await res.json()
-          if (status === 'RUNNING') {
+          const s = (status || '').toLowerCase()
+          if (s === 'running') {
             seenRunning = true
-          } else if (seenRunning) {
+          } else if (seenRunning && (s === 'done' || s === 'error' || s === 'idle')) {
             // Pipeline finished — stop everything and notify
             clearInterval(pollId)
             clearInterval(logId)
@@ -101,7 +102,7 @@ export function openAgentStream({ onLine, onDone }) {
             onDone()
           }
         } catch { /* keep polling */ }
-      }, 2000)
+      }, 1000)
     })
     .catch(() => {
       // Backend unreachable — finish after dummy log completes
