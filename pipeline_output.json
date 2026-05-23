@@ -1,0 +1,33 @@
+{
+  "critical_patched": [
+    {
+      "cve_id": "CVE-2024-6387",
+      "host_ip": "54.123.45.67",
+      "action": "Patch OpenSSH config: disable empty passwords, restrict to VPN subnet, restart sshd",
+      "outcome": "dry_run"
+    }
+  ],
+  "low_deferred": [
+    {
+      "cve_id": "CVE-2021-44228",
+      "host_ip": "10.0.1.12",
+      "reason": "Active exploit exists but host is internal-only"
+    },
+    {
+      "cve_id": "CVE-2024-3094",
+      "host_ip": "10.0.1.23",
+      "reason": "Internal host, no active exploit \u2014 safe to defer"
+    },
+    {
+      "cve_id": "CVE-2023-44487",
+      "host_ip": "10.0.1.12",
+      "reason": "Internal host, no active exploit \u2014 safe to defer"
+    },
+    {
+      "cve_id": "CVE-2023-23397",
+      "host_ip": "10.0.1.23",
+      "reason": "Internal host, no active exploit \u2014 safe to defer"
+    }
+  ],
+  "summary": "AutoPatch-Agent completed. 1 critical CVE(s) remediated, 4 low-priority CVE(s) deferred."
+}
