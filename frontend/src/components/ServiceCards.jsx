@@ -4,6 +4,7 @@ const STATUS_CFG = {
   CRITICAL: { border: 'border-v-red',   glow: 'animate-critical-glow', badge: 'bg-v-red-dim text-v-red border-v-red',   icon: AlertTriangle, dot: 'bg-v-red' },
   PATCHED:  { border: 'border-v-green', glow: '',                       badge: 'bg-v-green-dim text-v-green border-v-green', icon: CheckCircle,  dot: 'bg-v-green' },
   DEFERRED: { border: 'border-v-dim',   glow: '',                       badge: 'bg-v-surface text-v-dim-text border-v-dim',  icon: Clock,        dot: 'bg-v-dim' },
+  AT_RISK:  { border: 'border-v-red',   glow: 'animate-critical-glow',   badge: 'bg-v-red-dim text-v-red border-v-red',   icon: AlertTriangle, dot: 'bg-v-red' },
 }
 
 function ServiceCard({ svc, selected, onClick }) {

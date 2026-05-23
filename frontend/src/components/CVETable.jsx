@@ -8,6 +8,7 @@ const PRIORITY_BADGE = {
 const STATUS_COLOR = {
   PATCHED:  'text-v-green',
   DEFERRED: 'text-v-amber',
+  AT_RISK:  'text-v-red',
 }
 
 function CvssBar({ score }) {

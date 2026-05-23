@@ -1,14 +1,14 @@
 /**
  * VulnerAI API client
  *
- * Tries the real FastAPI backend (localhost:8000) first.
+ * Tries the local backend first (default: 127.0.0.1:8787).
  * Falls back to dummy data automatically if the backend isn't running.
- * Swap BASE_URL to your deployed URL for production.
+ * Set VITE_API_URL to your deployed backend URL for production.
  */
 
 import { CVE_FINDINGS, AGENT_LOG } from './data/dummy'
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8787'
 
 async function safeFetch(path) {
   try {
@@ -16,52 +16,41 @@ async function safeFetch(path) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return await res.json()
   } catch {
-    return null   // caller decides the fallback
+    return null // caller decides the fallback
   }
 }
-
-// ─── Status ────────────────────────────────────────────────
 
 export async function fetchStatus() {
   const data = await safeFetch('/api/status')
   return data ?? { status: 'IDLE', last_run: null }
 }
 
-// ─── Triage (CVE findings) ─────────────────────────────────
-
 export async function fetchTriage() {
   const rows = await safeFetch('/api/triage')
 
   if (rows && rows.length > 0) {
-    // Normalize backend field names → what CVETable expects
+    // Normalize backend field names -> what CVETable expects
     return rows.map(r => ({
       ...r,
-      id:           r.cve_id,
-      cvss:         r.cvss_score ?? r.cvss ?? 0,
-      service_name: r.host_name ?? r.service_name ?? r.cve_id,
+      id: r.cve_id ?? r.id,
+      cvss: r.cvss_score ?? r.cvss ?? 0,
+      service_name: r.host_name ?? r.service_name ?? r.cve_id ?? r.id,
     }))
   }
 
-  // Fallback: dummy data already has the right shape
   return CVE_FINDINGS
 }
-
-// ─── Remediation log ──────────────────────────────────────
 
 export async function fetchRemediation() {
   const rows = await safeFetch('/api/remediation')
   return rows ?? []
 }
 
-// ─── Report ────────────────────────────────────────────────
-
 export async function fetchReport() {
   const data = await safeFetch('/api/report')
   if (data?.ready && data.markdown) return data.markdown
-  return null   // null = not ready yet, show placeholder
+  return null
 }
-
-// ─── Trigger agent (non-streaming) ────────────────────────
 
 export async function triggerRun() {
   try {
@@ -72,12 +61,11 @@ export async function triggerRun() {
   }
 }
 
-// ─── SSE stream ────────────────────────────────────────────
 /**
  * Opens an EventSource to /api/stream.
  * Calls onLine({ ts, level, module, msg }) for each agent log line.
  * Calls onDone() when the agent cycle completes.
- * Returns a cleanup function — call it to close the stream.
+ * Returns a cleanup function - call it to close the stream.
  *
  * Falls back to the dummy AGENT_LOG timer if backend is unreachable.
  */
@@ -85,7 +73,6 @@ export function openAgentStream({ onLine, onDone }) {
   let es
   let alive = true
 
-  // Try real SSE first
   try {
     es = new EventSource(`${BASE_URL}/api/stream`)
 
@@ -117,7 +104,6 @@ export function openAgentStream({ onLine, onDone }) {
   }
 }
 
-// Dummy timer fallback used when backend is offline
 function _fallbackStream({ onLine, onDone }) {
   let i = 0
   const id = setInterval(() => {
@@ -130,3 +116,4 @@ function _fallbackStream({ onLine, onDone }) {
     }
   }, 260)
 }
+

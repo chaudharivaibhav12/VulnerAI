@@ -23,12 +23,19 @@ from clickhouse.mock_client import init_db, reset_db, fetch_all
 
 
 def print_banner():
-    print("""
+    banner = """
 ╔══════════════════════════════════════════════════════╗
 ║          AutoPatch-Agent  v0.1.0                     ║
 ║  Autonomous Vulnerability Triage & Remediation       ║
 ╚══════════════════════════════════════════════════════╝
-""")
+"""
+    try:
+        print(banner)
+    except UnicodeEncodeError:
+        print("================================================")
+        print("  AutoPatch-Agent v0.1.0")
+        print("  Autonomous Vulnerability Triage & Remediation")
+        print("================================================")
 
 
 def print_final_report(summary: dict):
@@ -80,6 +87,12 @@ def main():
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress step-by-step logging")
     args = parser.parse_args()
+
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
     print_banner()
 

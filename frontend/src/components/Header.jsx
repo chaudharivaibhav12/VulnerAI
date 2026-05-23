@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 const STATUS_CFG = {
   IDLE:     { color: 'text-v-dim-text', dot: 'bg-v-dim',   label: 'STANDBY' },
   RUNNING:  { color: 'text-v-amber',   dot: 'bg-v-amber',  label: 'RUNNING' },
+  TRIAGED:  { color: 'text-v-blue',    dot: 'bg-v-blue',   label: 'TRIAGED' },
   HARDENED: { color: 'text-v-green',   dot: 'bg-v-green',  label: 'HARDENED' },
   ERROR:    { color: 'text-v-red',     dot: 'bg-v-red',    label: 'ERROR' },
 }

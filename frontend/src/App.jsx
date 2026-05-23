@@ -13,20 +13,20 @@ const TABS = ['TERMINAL', 'SERVICES', 'INTEL', 'REPORT']
 
 export default function App() {
   // Agent state
-  const [agentStatus, setAgentStatus]   = useState('IDLE')
-  const [isRunning, setIsRunning]       = useState(false)
-  const [reportReady, setReportReady]   = useState(false)
-  const [showReport, setShowReport]     = useState(false)
+  const [agentStatus, setAgentStatus] = useState('IDLE')
+  const [isRunning, setIsRunning] = useState(false)
+  const [reportReady, setReportReady] = useState(false)
+  const [showReport, setShowReport] = useState(false)
 
   // Data state
-  const [logLines, setLogLines]         = useState([])
-  const [triage, setTriage]             = useState([])
-  const [reportMd, setReportMd]         = useState(null)
+  const [logLines, setLogLines] = useState([])
+  const [triage, setTriage] = useState([])
+  const [reportMd, setReportMd] = useState(null)
 
   // UI state
   const [selectedService, setSelectedService] = useState(null)
-  const [selectedCVE, setSelectedCVE]         = useState(null)
-  const [activeTab, setActiveTab]             = useState('TERMINAL')
+  const [selectedCVE, setSelectedCVE] = useState(null)
+  const [activeTab, setActiveTab] = useState('TERMINAL')
 
   const streamCleanup = useRef(null)
 
@@ -41,7 +41,10 @@ export default function App() {
 
       setAgentStatus(status.status || 'IDLE')
       if (rows?.length) setTriage(rows)
-      if (report) { setReportMd(report); setReportReady(true) }
+      if (report) {
+        setReportMd(report)
+        setReportReady(true)
+      }
     }
     boot()
   }, [])
@@ -68,15 +71,15 @@ export default function App() {
     setSelectedCVE(null)
 
     const cleanup = openAgentStream({
-      onLine: (entry) => setLogLines(prev => [...prev, entry]),
+      onLine: (entry) => setLogLines((prev) => [...prev, entry]),
       onDone: async () => {
         setIsRunning(false)
         setAgentStatus('HARDENED')
 
         // Fetch updated data after cycle
         const [rows, report] = await Promise.all([fetchTriage(), fetchReport()])
-        if (rows?.length)  setTriage(rows)
-        if (report)        setReportMd(report)
+        if (rows?.length) setTriage(rows)
+        if (report) setReportMd(report)
         setReportReady(true)
       },
     })
@@ -89,36 +92,44 @@ export default function App() {
 
   // ── Derived data ────────────────────────────────────────
   const filteredFindings = selectedService
-    ? triage.filter(f => f.host_name === selectedService.name || f.host_ip === selectedService.host)
+    ? triage.filter(
+        (f) => f.host_name === selectedService.name || f.host_ip === selectedService.host,
+      )
     : triage
 
   // Map backend triage rows → ServiceCards expects the SERVICES shape
-  const enrichedServices = SERVICES.map(svc => {
-    const svcTriage = triage.filter(f =>
-      f.host_name === svc.name || f.host_ip === svc.host
-    )
-    const hasCritical = svcTriage.some(f => f.priority === 'CRITICAL')
-    const hasPatched  = svcTriage.some(f => f.status  === 'PATCHED')
+  const enrichedServices = SERVICES.map((svc) => {
+    const svcTriage = triage.filter((f) => f.host_name === svc.name || f.host_ip === svc.host)
+    const hasCritical = svcTriage.some((f) => f.priority === 'CRITICAL')
+    const hasPatched = svcTriage.some((f) => f.status === 'PATCHED')
     return {
       ...svc,
       cve_count: svcTriage.length,
-      status: hasCritical && hasPatched ? 'PATCHED'
-            : hasCritical               ? 'CRITICAL'
+      status:
+        hasCritical && hasPatched
+          ? 'PATCHED'
+          : hasCritical
+            ? 'CRITICAL'
             : 'DEFERRED',
     }
   })
 
   const stats = {
-    total:    triage.length,
-    critical: triage.filter(f => f.priority === 'CRITICAL').length,
-    patched:  triage.filter(f => f.status   === 'PATCHED').length,
-    deferred: triage.filter(f => f.status   === 'DEFERRED').length,
+    total: triage.length,
+    critical: triage.filter((f) => f.priority === 'CRITICAL').length,
+    patched: triage.filter((f) => f.status === 'PATCHED').length,
+    deferred: triage.filter((f) => f.status === 'DEFERRED').length,
   }
 
   const headerProps = {
-    agentStatus, stats, isRunning,
-    onRun:        runAgent,
-    onShowReport: () => { setShowReport(v => !v); setActiveTab('REPORT') },
+    agentStatus,
+    stats,
+    isRunning,
+    onRun: runAgent,
+    onShowReport: () => {
+      setShowReport((v) => !v)
+      setActiveTab('REPORT')
+    },
     reportReady,
     showReport,
   }
@@ -143,11 +154,7 @@ export default function App() {
                 selected={selectedService}
                 onSelect={setSelectedService}
               />
-              <CVETable
-                findings={filteredFindings}
-                selected={selectedCVE}
-                onSelect={setSelectedCVE}
-              />
+              <CVETable findings={filteredFindings} selected={selectedCVE} onSelect={setSelectedCVE} />
             </div>
           </>
         )}
@@ -156,9 +163,7 @@ export default function App() {
       {/* ── MOBILE / TABLET (< lg) ────────────────────── */}
       <div className="flex lg:hidden flex-col flex-1 overflow-hidden">
         <div className="flex-1 overflow-hidden">
-          {activeTab === 'TERMINAL' && (
-            <AgentLog logs={logLines} isRunning={isRunning} />
-          )}
+          {activeTab === 'TERMINAL' && <AgentLog logs={logLines} isRunning={isRunning} />}
           {activeTab === 'SERVICES' && (
             <div className="overflow-y-auto h-full">
               <ServiceCards
@@ -169,19 +174,13 @@ export default function App() {
             </div>
           )}
           {activeTab === 'INTEL' && (
-            <CVETable
-              findings={filteredFindings}
-              selected={selectedCVE}
-              onSelect={setSelectedCVE}
-            />
+            <CVETable findings={filteredFindings} selected={selectedCVE} onSelect={setSelectedCVE} />
           )}
-          {activeTab === 'REPORT' && (
-            <ReportViewer markdown={reportMd} />
-          )}
+          {activeTab === 'REPORT' && <ReportViewer markdown={reportMd} />}
         </div>
 
         <nav className="shrink-0 flex border-t border-v-border bg-v-surface safe-bottom">
-          {TABS.map(tab => (
+          {TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -194,9 +193,7 @@ export default function App() {
               {tab === 'REPORT' && reportReady && activeTab !== 'REPORT' && (
                 <span className="absolute top-2 right-[calc(50%-14px)] w-1.5 h-1.5 rounded-full bg-v-green" />
               )}
-              {activeTab === tab && (
-                <span className="absolute top-0 left-1/4 right-1/4 h-px bg-v-amber" />
-              )}
+              {activeTab === tab && <span className="absolute top-0 left-1/4 right-1/4 h-px bg-v-amber" />}
             </button>
           ))}
         </nav>
@@ -204,3 +201,4 @@ export default function App() {
     </div>
   )
 }
+
