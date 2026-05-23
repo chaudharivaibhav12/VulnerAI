@@ -1,5 +1,98 @@
 {
+  "nimble_threat_intel": {
+    "VULN-001": {
+      "vuln_id": "VULN-001",
+      "kev_listed": true,
+      "kev_reference_url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+      "exploit_db_count": 23,
+      "github_mentions_30d": 187,
+      "underground_chatter": 0.62,
+      "evidence_urls": [
+        "https://www.exploit-db.com/search?q=CWE-78+PHP",
+        "https://github.com/search?q=%22shell_exec%22+%22command+injection%22&type=issues",
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+      ]
+    },
+    "VULN-002": {
+      "vuln_id": "VULN-002",
+      "kev_listed": true,
+      "kev_reference_url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+      "exploit_db_count": 47,
+      "github_mentions_30d": 312,
+      "underground_chatter": 0.81,
+      "evidence_urls": [
+        "https://www.exploit-db.com/search?q=UNION+SELECT+SQL+injection",
+        "https://github.com/search?q=sqlmap+UNION+SELECT&type=issues",
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+      ]
+    },
+    "VULN-003": {
+      "vuln_id": "VULN-003",
+      "kev_listed": false,
+      "kev_reference_url": "",
+      "exploit_db_count": 18,
+      "github_mentions_30d": 134,
+      "underground_chatter": 0.38,
+      "evidence_urls": [
+        "https://www.exploit-db.com/search?q=CWE-434+webshell+upload",
+        "https://github.com/search?q=%22weevely%22+webshell&type=repositories"
+      ]
+    },
+    "VULN-004": {
+      "vuln_id": "VULN-004",
+      "kev_listed": false,
+      "kev_reference_url": "",
+      "exploit_db_count": 32,
+      "github_mentions_30d": 245,
+      "underground_chatter": 0.45,
+      "evidence_urls": [
+        "https://www.exploit-db.com/search?q=stored+XSS+guestbook",
+        "https://github.com/search?q=%22session+hijack%22+XSS&type=issues"
+      ]
+    }
+  },
   "exploit_intel": {
+    "VULN-001": {
+      "cve_id": "VULN-001",
+      "has_active_exploit": true,
+      "exploit_sources": [
+        "https://owasp.org/www-community/attacks/SQL_Injection",
+        "https://github.com/sqlmapproject/sqlmap",
+        "https://www.exploit-db.com/exploits/sql-injection-dvwa"
+      ],
+      "summary": "SQL Injection actively exploited against DVWA. sqlmap tooling detected in 296 live traffic spans from known attacker IPs. Weaponized exploit code widely available.",
+      "searched_at": "2024-07-15T08:23:00Z"
+    },
+    "VULN-002": {
+      "cve_id": "VULN-002",
+      "has_active_exploit": true,
+      "exploit_sources": [
+        "https://owasp.org/www-community/attacks/xss/",
+        "https://portswigger.net/web-security/cross-site-scripting",
+        "https://github.com/s0md3v/XSStrike"
+      ],
+      "summary": "Reflected XSS actively exploited via DVWA. XSStrike and similar tools detected in live attack spans. Exploit code circulating in CTF and pentesting communities.",
+      "searched_at": "2024-07-15T08:23:01Z"
+    },
+    "VULN-003": {
+      "cve_id": "VULN-003",
+      "has_active_exploit": true,
+      "exploit_sources": [
+        "https://owasp.org/www-project-top-ten/2017/A2_2017-Broken_Authentication",
+        "https://github.com/danielmiessler/SecLists"
+      ],
+      "summary": "Brute-force credential attacks confirmed via live traffic spans. SecLists-based wordlists detected. Attack frequency elevated — 2349 attack spans recorded.",
+      "searched_at": "2024-07-15T08:23:02Z"
+    },
+    "VULN-004": {
+      "cve_id": "VULN-004",
+      "has_active_exploit": false,
+      "exploit_sources": [
+        "https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload"
+      ],
+      "summary": "File upload vulnerability present but no active exploit traffic detected in span data. Patch recommended — risk is lower than SQLi/XSS due to auth-gated endpoint.",
+      "searched_at": "2024-07-15T08:23:03Z"
+    },
     "CVE-2024-6387": {
       "cve_id": "CVE-2024-6387",
       "has_active_exploit": true,
@@ -56,6 +149,14 @@
     }
   },
   "exposure_checks": {
+    "dvwa.demo": {
+      "host_ip": "dvwa.demo",
+      "port": 80,
+      "is_internet_exposed": true,
+      "response_code": 200,
+      "banner": "Apache/2.4.57 (Debian)",
+      "checked_at": "2024-07-15T08:24:00Z"
+    },
     "54.123.45.67": {
       "host_ip": "54.123.45.67",
       "port": 22,

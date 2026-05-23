@@ -40,42 +40,61 @@ def print_banner():
 
 def print_final_report(summary: dict):
     print("\n" + "═" * 60)
-    print("  FINAL PIPELINE REPORT")
+    print("  RANKING AGENT — FINAL REPORT")
     print("═" * 60)
 
-    critical = summary.get("critical_patched", [])
-    deferred = summary.get("low_deferred", [])
+    ranking      = summary.get("ranking", {})
+    rankings     = ranking.get("rankings", [])
+    explanation  = ranking.get("explanation", "")
+    remediated   = summary.get("remediated", [])
+    deferred     = summary.get("deferred", [])
+    prs          = summary.get("pull_requests", [])
 
-    print(f"\n✅  CRITICAL — Remediated ({len(critical)}):")
-    for item in critical:
-        print(f"    • {item['cve_id']} on {item['host_ip']}")
+    if explanation:
+        print(f"\n💡  Explanation: {explanation}\n")
+
+    print(f"📊  Ranking (n={len(rankings)}):")
+    for r in rankings:
+        score = r.get("composite_score", 0)
+        sub   = r.get("sub_scores", {})
+        print(
+            f"  #{r.get('rank', '?'):<2} {r['vuln_id']:<10}  "
+            f"composite {score:>6.2f}  │ "
+            f"active {sub.get('active_exploitation', 0):>5.1f}  "
+            f"external {sub.get('external_pressure', 0):>5.1f}  "
+            f"static {sub.get('static_severity', 0):>5.1f}"
+        )
+        print(f"        ↳ {r.get('reasoning', '')}")
+
+    if rankings:
+        top = rankings[0]
+        print(f"\n🥇  Top pick: {top['vuln_id']}")
+        if top.get("sample_trace_id"):
+            print(f"      trace_id : {top['sample_trace_id']}")
+        if top.get("sample_payload"):
+            print(f"      payload  : {top['sample_payload'][:80]}")
+
+    print(f"\n✅  Remediated ({len(remediated)}):")
+    for item in remediated:
+        print(f"    • #{item.get('rank','?')} {item['vuln_id']:<10}  composite {item['composite_score']:.1f}")
         print(f"      Action : {item.get('action', 'N/A')}")
         print(f"      Outcome: {item.get('outcome', 'N/A')}")
 
-    print(f"\n⏸️   LOW — Deferred ({len(deferred)}):")
+    print(f"\n⏸️   Deferred ({len(deferred)}):")
     for item in deferred:
-        print(f"    • {item['cve_id']} on {item['host_ip']}")
-        print(f"      Reason : {item.get('reason', 'N/A')}")
+        print(f"    • #{item.get('rank','?')} {item['vuln_id']:<10}  composite {item['composite_score']:.1f}")
+        print(f"      Reason : {item.get('reason', 'N/A')[:100]}")
 
-    prs = summary.get("pull_requests", [])
     print(f"\n🔀  Pull Requests Created ({len(prs)}):")
     for pr in prs:
         status_icon = "✅" if pr.get("pr_status") == "created" else "🧪"
-        print(f"    • {pr['cve_id']}  {status_icon} {pr.get('pr_status','').upper()}")
+        print(f"    • #{pr.get('rank','?')} {pr['vuln_id']}  {status_icon} {pr.get('pr_status','').upper()}")
         print(f"      Branch : {pr.get('branch', 'N/A')}")
         print(f"      PR URL : {pr.get('pr_url', 'N/A')}")
         print(f"      Files  : {pr.get('files_patched', 0)} patched")
 
     print(f"\n📋  Summary: {summary.get('summary', '')}")
     print("\n" + "═" * 60)
-
-    # Show ClickHouse triage table
-    print("\n  ClickHouse: triage_results")
-    print("─" * 60)
-    rows = fetch_all("triage_results")
-    for r in rows:
-        badge = "🔴 CRITICAL" if r["priority"] == "CRITICAL" else "🟡 LOW     "
-        print(f"  {badge}  {r['cve_id']:<20}  {r['host_ip']:<16}  CVSS {r['cvss_score']}")
 
     print("\n  ClickHouse: remediation_log")
     print("─" * 60)

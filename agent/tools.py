@@ -8,6 +8,7 @@ In live mode, calls real APIs (Datadog, Nimble, ClickHouse, SSM).
 import json
 import os
 import sys
+from datetime import datetime
 
 # Path helpers
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,6 +125,84 @@ def enrich_exploit_intel(cve_id: str) -> dict:
         "nimble_hit":         nimble_data.get("has_active_exploit", False),
         "summary":            intel.summary,
         "sources_count":      len(intel.exploit_sources),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Ranking-agent tools: read_apm + search_nimble
+# These produce the raw signals the Ranking Agent composes into
+# ACTIVE_EXPLOITATION, EXTERNAL_PRESSURE, STATIC_SEVERITY scores.
+# ─────────────────────────────────────────────────────────────
+
+def read_apm(vuln_id: str, window_minutes: int = 60) -> dict:
+    """
+    APM runtime telemetry for a vulnerability over a time window.
+    Mirrors the ClickHouse apm_spans query in the spec — returns
+    attack volume, attacker diversity (IPs/ASNs/countries), time-bucketed
+    rate (last 15min vs prior 45min), success rate, and a sample exploit
+    trace for the patch agent.
+    """
+    print(f"[tool] read_apm(vuln_id={vuln_id}, window_minutes={window_minutes})")
+
+    from datadog.span_analyzer import read_apm_data, SPANS_PATH
+    if not os.path.exists(SPANS_PATH):
+        return {
+            "vuln_id":                vuln_id,
+            "attack_count":           0,
+            "unique_ips":             0,
+            "unique_asns":            0,
+            "countries":              [],
+            "attacks_last_15min":     0,
+            "attacks_prior_45min":    0,
+            "successful_attack_rate": 0.0,
+            "sample_trace_id":        "",
+            "sample_payload":         "",
+            "top_user_agents":        [],
+        }
+    return read_apm_data(vuln_id, window_minutes)
+
+
+_NIMBLE_THREAT_CACHE: dict | None = None
+
+
+def _load_nimble_threat_mock() -> dict:
+    global _NIMBLE_THREAT_CACHE
+    if _NIMBLE_THREAT_CACHE is not None:
+        return _NIMBLE_THREAT_CACHE
+    mock_path = os.path.join(ROOT, "nimble", "mock_responses.json")
+    try:
+        with open(mock_path) as f:
+            data = json.load(f)
+        _NIMBLE_THREAT_CACHE = data.get("nimble_threat_intel", {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        _NIMBLE_THREAT_CACHE = {}
+    return _NIMBLE_THREAT_CACHE
+
+
+def search_nimble(vuln_id: str, search_terms: list[str] | None = None) -> dict:
+    """
+    External threat-intelligence signal for a vuln class via Nimble.
+    Returns CISA KEV listing, public exploit count (ExploitDB),
+    GitHub mentions in last 30d, and an underground-chatter score (0..1)
+    derived from forum/paste-site/dark-web monitoring.
+
+    In mock mode (or when live Nimble fails), loads canned threat intel from
+    nimble/mock_responses.json::nimble_threat_intel.
+    """
+    print(f"[tool] search_nimble(vuln_id={vuln_id}, terms={search_terms or '[]'})")
+
+    mock = _load_nimble_threat_mock().get(vuln_id)
+    if mock:
+        return mock
+
+    return {
+        "vuln_id":             vuln_id,
+        "kev_listed":          False,
+        "kev_reference_url":   "",
+        "exploit_db_count":    0,
+        "github_mentions_30d": 0,
+        "underground_chatter": 0.0,
+        "evidence_urls":       [],
     }
 
 
@@ -491,6 +570,34 @@ TOOL_DEFINITIONS_ANTHROPIC = [
         }
     },
     {
+        "name": "read_apm",
+        "description": "Query ClickHouse for runtime attack telemetry on a specific vulnerability over a time window. Returns aggregate attack signal: hit count, unique source IPs/ASNs/countries, time-bucketed rate (last 15min vs prior 45min), success rate, and a sample exploit trace for downstream agents.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "vuln_id":        {"type": "string", "description": "Catalog ID, e.g. VULN-001"},
+                "window_minutes": {"type": "integer", "description": "Window size in minutes (default 60)"}
+            },
+            "required": ["vuln_id"]
+        }
+    },
+    {
+        "name": "search_nimble",
+        "description": "Query Nimbleway web data API for external threat-intelligence signal on a CWE/vuln class. Returns CISA KEV listing status, public exploit count from ExploitDB, GitHub mentions in the last 30 days, and an underground-chatter score derived from forum / paste-site / dark-web monitoring.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "vuln_id":      {"type": "string"},
+                "search_terms": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Pre-canned terms from vuln_catalog.nimble_search_terms"
+                }
+            },
+            "required": ["vuln_id"]
+        }
+    },
+    {
         "name": "check_internet_exposure",
         "description": "Use Nimble to probe a host IP and check if it is reachable from the public internet. Returns true if the host is internet-exposed.",
         "input_schema": {
@@ -599,6 +706,40 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "read_apm",
+            "description": "Query ClickHouse for runtime attack telemetry on a specific vulnerability over a time window. Returns aggregate attack signal: hit count, unique source IPs/ASNs/countries, time-bucketed rate (last 15min vs prior 45min), success rate, and a sample exploit trace for downstream agents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vuln_id":        {"type": "string", "description": "Catalog ID, e.g. VULN-001"},
+                    "window_minutes": {"type": "integer", "description": "Window size in minutes (default 60)"}
+                },
+                "required": ["vuln_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_nimble",
+            "description": "Query Nimbleway web data API for external threat-intelligence signal on a CWE/vuln class. Returns CISA KEV listing status, public exploit count from ExploitDB, GitHub mentions in the last 30 days, and an underground-chatter score derived from forum / paste-site / dark-web monitoring.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "vuln_id":      {"type": "string"},
+                    "search_terms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Pre-canned terms from vuln_catalog.nimble_search_terms"
+                    }
+                },
+                "required": ["vuln_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_internet_exposure",
             "description": "Use Nimble to probe a host IP and check if it is reachable from the public internet. Returns true if the host is internet-exposed.",
             "parameters": {
@@ -695,6 +836,8 @@ def dispatch_tool(name: str, args: dict) -> dict:
     dispatch = {
         "fetch_cve_findings":      lambda: fetch_cve_findings(),
         "enrich_exploit_intel":    lambda: enrich_exploit_intel(**args),
+        "read_apm":                lambda: read_apm(**args),
+        "search_nimble":           lambda: search_nimble(**args),
         "check_internet_exposure": lambda: check_internet_exposure(**args),
         "run_triage":              lambda: run_triage(),
         "rerank_triage":           lambda: rerank_triage(),

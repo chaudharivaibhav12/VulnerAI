@@ -67,6 +67,10 @@ def _live_check(host_ip: str, port: int) -> dict:
     print(f"[nimble/exposure] Probing {target_url} via Nimble...")
     result = client.probe_host(target_url)
 
+    if "error" in result.get("raw", {}):
+        print(f"[nimble/exposure] Live check failed — falling back to mock for {host_ip}")
+        return _load_mock_exposure(host_ip, port)
+
     is_exposed    = result.get("reachable", False)
     response_code = result.get("status_code")
     banner        = _extract_banner(result.get("raw", {}))
