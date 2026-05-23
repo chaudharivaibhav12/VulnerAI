@@ -3,6 +3,7 @@
     {
       "cve_id": "CVE-2024-6387",
       "host_ip": "54.123.45.67",
+      "host_id": "i-0a1b2c3d4e5f67890",
       "action": "Patch OpenSSH config: disable empty passwords, restrict to VPN subnet, restart sshd",
       "outcome": "dry_run"
     }
@@ -29,5 +30,15 @@
       "reason": "Internal host, no active exploit \u2014 safe to defer"
     }
   ],
-  "summary": "AutoPatch-Agent completed. 1 critical CVE(s) remediated, 4 low-priority CVE(s) deferred."
+  "pull_requests": [
+    {
+      "cve_id": "CVE-2024-6387",
+      "pr_url": "https://github.com/chaudharivaibhav12/VulnerAI/pull/7143",
+      "pr_number": 7143,
+      "branch": "autopatch/CVE-2024-6387-openssh-server",
+      "pr_status": "dry_run",
+      "files_patched": 2
+    }
+  ],
+  "summary": "AutoPatch-Agent completed. 1 critical CVE(s) remediated, 1 PR(s) created, 4 low-priority CVE(s) deferred."
 }
