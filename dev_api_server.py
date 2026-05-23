@@ -45,7 +45,7 @@ DEMO_SNAPSHOT_PATH   = os.path.join(ROOT, "demo_snapshot.json")
 # Demo mode: replay demo_snapshot.json instead of calling the real LLM pipeline.
 # Toggled via --demo CLI flag or DEMO_MODE=1 env var. Total runtime ~4s instead of ~60s.
 DEMO_MODE          = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
-DEMO_RUN_DURATION  = float(os.getenv("DEMO_RUN_DURATION", "4.0"))   # seconds of fake "running" state
+DEMO_RUN_DURATION  = float(os.getenv("DEMO_RUN_DURATION", "10.0"))   # seconds of fake "running" state
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
