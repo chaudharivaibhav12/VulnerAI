@@ -24,16 +24,15 @@ export default function App() {
 
   const streamCleanup = useRef(null)
 
-  // Boot: load existing data
+  // Boot: only sync running-state with the backend.
+  // We intentionally DO NOT hydrate pipelineOutput / report on first load —
+  // insights (rank-flip banner, scores, PRs) must only appear AFTER the
+  // user clicks Run in this session. A page refresh always returns to the
+  // pre-run DETECTED state, which keeps the demo flow coherent.
   useEffect(() => {
     async function boot() {
-      const [status, report] = await Promise.all([fetchStatus(), fetchReport()])
+      const status = await fetchStatus()
       setAgentStatus(mapStatus(status.status))
-      setPipelineOutput(status.output || null)
-      if (report) {
-        setReportMd(report)
-        setReportReady(true)
-      }
     }
     boot()
   }, [])
