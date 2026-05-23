@@ -40,6 +40,12 @@ for stream in (sys.stdout, sys.stderr):
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PIPELINE_OUTPUT_PATH = os.path.join(ROOT, "pipeline_output.json")
+DEMO_SNAPSHOT_PATH   = os.path.join(ROOT, "demo_snapshot.json")
+
+# Demo mode: replay demo_snapshot.json instead of calling the real LLM pipeline.
+# Toggled via --demo CLI flag or DEMO_MODE=1 env var. Total runtime ~4s instead of ~60s.
+DEMO_MODE          = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
+DEMO_RUN_DURATION  = float(os.getenv("DEMO_RUN_DURATION", "4.0"))   # seconds of fake "running" state
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
@@ -443,6 +449,27 @@ class _RunState:
     last_error = None
 
 
+def _replay_demo_snapshot() -> dict:
+    """
+    Demo-mode pipeline: returns the frozen demo_snapshot.json after a short
+    sleep, so the dashboard sees the normal idle -> running -> done lifecycle
+    but the whole run completes in ~4s instead of ~60s.
+    """
+    from agent.tools import fetch_cve_findings
+    print(f"[demo] replaying demo_snapshot.json ({DEMO_RUN_DURATION:.1f}s simulated runtime)")
+    fetch_cve_findings()  # seed cve_findings so /api/triage has rows
+    time.sleep(DEMO_RUN_DURATION)
+    try:
+        with open(DEMO_SNAPSHOT_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {
+            "ranking": {"explanation": "demo_snapshot.json missing — run real pipeline first.", "rankings": []},
+            "remediated": [], "deferred": [], "pull_requests": [],
+            "summary": "Demo snapshot not found.",
+        }
+
+
 def _run_pipeline(reset: bool):
     from clickhouse.mock_client import init_db, reset_db
     from agent.orchestrator import run_llm_pipeline
@@ -458,7 +485,10 @@ def _run_pipeline(reset: bool):
         init_db()
         if reset:
             reset_db()
-        summary = run_llm_pipeline(verbose=True)
+        if DEMO_MODE:
+            summary = _replay_demo_snapshot()
+        else:
+            summary = run_llm_pipeline(verbose=True)
         # Persist for the frontend to consume.
         try:
             with open(PIPELINE_OUTPUT_PATH, "w", encoding="utf-8") as f:
@@ -587,18 +617,29 @@ def _bootstrap_clean_state():
 
 
 def main():
+    global DEMO_MODE, DEMO_RUN_DURATION
     parser = argparse.ArgumentParser(description="Local API server for AutoPatch-Agent demo")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--no-bootstrap", action="store_true",
                         help="Skip the clean-state bootstrap (keep DB + last pipeline output)")
+    parser.add_argument("--demo", action="store_true",
+                        help="Demo mode: replay demo_snapshot.json instead of running the real LLM pipeline (~4s vs ~60s)")
+    parser.add_argument("--demo-duration", type=float, default=None,
+                        help="Override the simulated demo run duration in seconds (default 4.0)")
     args = parser.parse_args()
+
+    if args.demo:
+        DEMO_MODE = True
+    if args.demo_duration is not None:
+        DEMO_RUN_DURATION = args.demo_duration
 
     if not args.no_bootstrap:
         _bootstrap_clean_state()
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"[dev_api_server] Listening on http://{args.host}:{args.port}")
+    mode = "DEMO (snapshot replay)" if DEMO_MODE else "LIVE (real LLM pipeline)"
+    print(f"[dev_api_server] Listening on http://{args.host}:{args.port} — mode: {mode}")
     httpd.serve_forever()
 
 

@@ -1,0 +1,180 @@
+{
+  "ranking": {
+    "generated_at": "2026-05-18T10:00:00Z",
+    "window": "1h",
+    "explanation": "VULN-001 (Command Injection, CVSS 9.8) ranks #1 over VULN-002 (SQL Injection, identical CVSS 9.8) purely on runtime evidence: VULN-001 is under a massive, accelerating, globally-distributed attack (2349 hits/h from 23 ASNs across 9 countries, trend 6.24x vs prior rate, 100% success rate), whereas VULN-002's attack traffic originates from a single ASN in one country and is decelerating. VULN-004 (Stored XSS) outranks VULN-003 (File Upload) despite lower CVSS because it is KEV-listed with higher external pressure, while VULN-003 has zero active attack traffic and no KEV listing.",
+    "rankings": [
+      {
+        "rank": 1,
+        "vuln_id": "VULN-001",
+        "composite_score": 85.3,
+        "sub_scores": {
+          "active_exploitation": 84.97,
+          "external_pressure": 80.31,
+          "static_severity": 98.0
+        },
+        "evidence": {
+          "attack_count_1h": 2349,
+          "unique_asns": 23,
+          "unique_ips": 2349,
+          "countries": [
+            "CN",
+            "DE",
+            "FR",
+            "GB",
+            "IN",
+            "KR",
+            "NL",
+            "RU",
+            "US"
+          ],
+          "trend_ratio": 6.24,
+          "successful_attack_rate": 1.0,
+          "kev_listed": true,
+          "exploit_db_count": 23,
+          "github_mentions_30d": 187,
+          "underground_chatter": 0.62,
+          "cvss_score": 9.8
+        },
+        "sample_trace_id": "105a6d00a379408384831de107c6f772",
+        "sample_payload": "127.0.0.1; uname -a; id",
+        "reasoning": "2349 attacks in the last 60 min from 2349 unique IPs across 23 ASNs and 9 countries \u2014 the broadest geographic and infrastructure diversity in this set. Trend ratio is 6.24x (1586 hits in the last 15 min vs a prior-period rate of 254/15-min), signalling a sharply accelerating campaign. Every recorded attempt succeeded (successful_attack_rate 1.0), confirming the endpoint is fully exploitable with no compensating controls. KEV-listed; 23 public PoCs on ExploitDB; 187 GitHub mentions in 30 days; underground chatter 0.62. Identical CVSS 9.8 to VULN-002 but ~2.3\u00d7 higher composite score driven entirely by live attack evidence."
+      },
+      {
+        "rank": 2,
+        "vuln_id": "VULN-002",
+        "composite_score": 64.12,
+        "sub_scores": {
+          "active_exploitation": 36.27,
+          "external_pressure": 89.38,
+          "static_severity": 98.0
+        },
+        "evidence": {
+          "attack_count_1h": 296,
+          "unique_asns": 1,
+          "unique_ips": 296,
+          "countries": [
+            "RU"
+          ],
+          "trend_ratio": 0.88,
+          "successful_attack_rate": 1.0,
+          "kev_listed": true,
+          "exploit_db_count": 47,
+          "github_mentions_30d": 312,
+          "underground_chatter": 0.81,
+          "cvss_score": 9.8
+        },
+        "sample_trace_id": "aca83604fe32426ab0bc54935a146470",
+        "sample_payload": "1' UNION SELECT NULL,version()-- ",
+        "reasoning": "296 attacks in the last 60 min, all from a single ASN and single country (RU), consistent with a targeted sqlmap scan rather than a distributed campaign. Trend ratio 0.88x indicates the attack rate is slightly decelerating. All attempts succeeded (successful_attack_rate 1.0), confirming live exploitability. External pressure is the highest in this set: KEV-listed, 47 ExploitDB PoCs, 312 GitHub mentions in 30 days, underground chatter 0.81 \u2014 indicating the attacker community is heavily weaponizing this CWE class. The single-ASN concentration prevents this from topping the ranking, but 100% success rate and extreme external pressure make it the clear #2."
+      },
+      {
+        "rank": 3,
+        "vuln_id": "VULN-004",
+        "composite_score": 42.75,
+        "sub_scores": {
+          "active_exploitation": 13.41,
+          "external_pressure": 76.84,
+          "static_severity": 61.0
+        },
+        "evidence": {
+          "attack_count_1h": 1,
+          "unique_asns": 1,
+          "unique_ips": 1,
+          "countries": [
+            "US"
+          ],
+          "trend_ratio": 0.0,
+          "successful_attack_rate": 1.0,
+          "kev_listed": true,
+          "exploit_db_count": 32,
+          "github_mentions_30d": 245,
+          "underground_chatter": 0.45,
+          "cvss_score": 6.1
+        },
+        "sample_trace_id": null,
+        "sample_payload": null,
+        "reasoning": "Only 1 attack hit in the last 60 min from 1 IP/1 ASN; trend ratio is 0.0x (zero activity in the last 15 min). Active exploitation score is very low (13.41). However, it is KEV-listed, carries 32 ExploitDB PoCs, 245 GitHub mentions in 30 days, and an underground chatter score of 0.45, producing the second-highest external pressure in the set (76.84). Outranks VULN-003 because VULN-003 is not KEV-listed (costs 40 external-pressure points) and has lower chatter; the single successful hit here also confirms the endpoint is reachable and exploitable. CVSS 6.1 (lowest in the set) confirms static severity is the tiebreaker, not the driver."
+      },
+      {
+        "rank": 4,
+        "vuln_id": "VULN-003",
+        "composite_score": 24.27,
+        "sub_scores": {
+          "active_exploitation": 0.0,
+          "external_pressure": 31.63,
+          "static_severity": 88.0
+        },
+        "evidence": {
+          "attack_count_1h": 0,
+          "unique_asns": 0,
+          "unique_ips": 0,
+          "countries": [],
+          "trend_ratio": 0.0,
+          "successful_attack_rate": 0.0,
+          "kev_listed": false,
+          "exploit_db_count": 18,
+          "github_mentions_30d": 134,
+          "underground_chatter": 0.38,
+          "cvss_score": 8.8
+        },
+        "sample_trace_id": null,
+        "sample_payload": null,
+        "reasoning": "Zero attacks in the last 60 min across all APM dimensions \u2014 active exploitation score is 0.00. Not KEV-listed, which alone costs 40 points of external pressure; only 18 ExploitDB PoCs, 134 GitHub mentions in 30 days, and the lowest underground chatter (0.38) in the set, yielding an external pressure of 31.63. Despite a CVSS of 8.8 (highest of the non-9.8 vulns), static severity accounts for only 15% of the composite and cannot overcome zero active evidence and weak external pressure. Ranks last. Still requires patching \u2014 webshell upload is high-consequence \u2014 but there is no current attack pressure justifying emergency prioritization over the other three."
+      }
+    ]
+  },
+  "remediated": [
+    {
+      "rank": 1,
+      "vuln_id": "VULN-001",
+      "name": "Command Injection in ping form",
+      "composite_score": 85.3,
+      "host_ip": "dvwa.demo",
+      "host_id": "dvwa-hack",
+      "action": "Generic patch: update VULN-001 package to latest safe version",
+      "outcome": "dry_run"
+    },
+    {
+      "rank": 2,
+      "vuln_id": "VULN-002",
+      "name": "SQL Injection in user lookup",
+      "composite_score": 64.12,
+      "host_ip": "dvwa.demo",
+      "host_id": "dvwa-hack",
+      "action": "Generic patch: update VULN-002 package to latest safe version",
+      "outcome": "dry_run"
+    },
+    {
+      "rank": 3,
+      "vuln_id": "VULN-004",
+      "name": "Stored XSS in guestbook",
+      "composite_score": 42.75,
+      "host_ip": "dvwa.demo",
+      "host_id": "dvwa-hack",
+      "action": "Generic patch: update VULN-004 package to latest safe version",
+      "outcome": "dry_run"
+    }
+  ],
+  "deferred": [
+    {
+      "rank": 4,
+      "vuln_id": "VULN-003",
+      "name": "Unrestricted File Upload",
+      "composite_score": 24.27,
+      "reason": "Zero attacks in the last 60 min across all APM dimensions \u2014 active exploitation score is 0.00. Not KEV-listed, which alone costs 40 points of external pressure; only 18 ExploitDB PoCs, 134 GitHub mentions in 30 days, and the lowest underground chatter (0.38) in the set, yielding an external pressure of 31.63. Despite a CVSS of 8.8 (highest of the non-9.8 vulns), static severity accounts for only 15% of the composite and cannot overcome zero active evidence and weak external pressure. Ranks last. Still requires patching \u2014 webshell upload is high-consequence \u2014 but there is no current attack pressure justifying emergency prioritization over the other three."
+    }
+  ],
+  "pull_requests": [
+    {
+      "rank": 1,
+      "vuln_id": "VULN-001",
+      "pr_url": "https://github.com/chaudharivaibhav12/VulnerAI/pull/7525",
+      "pr_number": 7525,
+      "branch": "autopatch/VULN-001-Command-Injection-in-ping-form",
+      "pr_status": "dry_run",
+      "files_patched": 1
+    }
+  ],
+  "summary": "Ranking Agent triaged 4 vuln(s). 3 remediated, 1 PR(s) created, 1 deferred."
+}
