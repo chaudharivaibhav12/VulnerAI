@@ -8,31 +8,30 @@ export const SERVICES = [
     port: 80,
     internet_exposed: true,
     cve_count: 4,
-    status: 'AT_RISK',
+    status: 'DETECTED',      // pre-run state — vulns found but not triaged
     region: 'us-east-1',
   },
 ]
 
+// Initial "untriaged" state — what the dashboard shows BEFORE the user
+// clicks Run. We only know CVSS + description from Datadog's vuln catalog.
+// The Ranking Agent computes priority + composite score after the run.
 export const CVE_FINDINGS = [
   {
     id: 'VULN-001',
     service_id: 'svc-dvwa',
     service_name: 'dvwa-hack',
     cvss: 9.8,
-    severity: 'CRITICAL',
+    severity: 'HIGH',
     description: 'Command Injection — user-supplied "ip" parameter is concatenated into a shell_exec() call without sanitization, enabling arbitrary OS command execution as the web-server user.',
     internet_exposed: true,
-    exploit_in_wild: true,
-    exploit_sources: [
-      { title: 'MITRE CWE-78', url: 'https://cwe.mitre.org/data/definitions/78.html' },
-      { title: 'OWASP — Command Injection', url: 'https://owasp.org/www-community/attacks/Command_Injection' },
-      { title: 'CISA KEV Catalog', url: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog' },
-    ],
-    priority: 'CRITICAL',
-    composite_score: 85.3,
-    status: 'PATCHED',
-    action_taken: 'PR opened: escapeshellarg() + IPv4 regex validation on the ip parameter',
-    patched_at: '2026-05-23T18:16:30Z',
+    exploit_in_wild: false,   // unknown until search_nimble runs
+    exploit_sources: [],      // populated by search_nimble
+    priority: null,           // computed by the Ranking Agent
+    composite_score: null,    // computed by the Ranking Agent
+    status: 'DETECTED',
+    action_taken: null,
+    patched_at: null,
   },
   {
     id: 'VULN-002',
@@ -42,35 +41,13 @@ export const CVE_FINDINGS = [
     severity: 'CRITICAL',
     description: 'SQL Injection — the "id" GET parameter is interpolated directly into a SELECT statement, allowing UNION-based extraction of arbitrary tables including the users table.',
     internet_exposed: true,
-    exploit_in_wild: true,
-    exploit_sources: [
-      { title: 'MITRE CWE-89', url: 'https://cwe.mitre.org/data/definitions/89.html' },
-      { title: 'OWASP — SQL Injection', url: 'https://owasp.org/www-community/attacks/SQL_Injection' },
-    ],
-    priority: 'HIGH',
-    composite_score: 64.1,
-    status: 'PATCHED',
-    action_taken: 'PDO prepared statement with integer-bound id parameter',
-    patched_at: '2026-05-23T18:16:35Z',
-  },
-  {
-    id: 'VULN-004',
-    service_id: 'svc-dvwa',
-    service_name: 'dvwa-hack',
-    cvss: 6.1,
-    severity: 'MEDIUM',
-    description: 'Stored XSS — name and message fields in the guestbook are saved to the database and rendered to other users without HTML encoding, allowing persistent JavaScript injection.',
-    internet_exposed: true,
-    exploit_in_wild: true,
-    exploit_sources: [
-      { title: 'MITRE CWE-79', url: 'https://cwe.mitre.org/data/definitions/79.html' },
-      { title: 'OWASP — XSS', url: 'https://owasp.org/www-community/attacks/xss/' },
-    ],
-    priority: 'HIGH',
-    composite_score: 42.8,
-    status: 'PATCHED',
-    action_taken: 'htmlspecialchars() on output + strict CSP header script-src \'self\'',
-    patched_at: '2026-05-23T18:16:40Z',
+    exploit_in_wild: false,
+    exploit_sources: [],
+    priority: null,
+    composite_score: null,
+    status: 'DETECTED',
+    action_taken: null,
+    patched_at: null,
   },
   {
     id: 'VULN-003',
@@ -81,15 +58,27 @@ export const CVE_FINDINGS = [
     description: 'Unrestricted File Upload — the upload form accepts any extension and writes the result to a PHP-executable directory, enabling webshell upload.',
     internet_exposed: true,
     exploit_in_wild: false,
-    exploit_sources: [
-      { title: 'MITRE CWE-434', url: 'https://cwe.mitre.org/data/definitions/434.html' },
-      { title: 'OWASP — Unrestricted File Upload', url: 'https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload' },
-    ],
-    priority: 'MEDIUM',
-    composite_score: 24.3,
-    status: 'DEFERRED',
+    exploit_sources: [],
+    priority: null,
+    composite_score: null,
+    status: 'DETECTED',
     action_taken: null,
-    deferred_reason: 'Composite 24.3 below remediation threshold — no live attack traffic observed in window despite high CVSS. Queued for next sprint.',
+    patched_at: null,
+  },
+  {
+    id: 'VULN-004',
+    service_id: 'svc-dvwa',
+    service_name: 'dvwa-hack',
+    cvss: 6.1,
+    severity: 'MEDIUM',
+    description: 'Stored XSS — name and message fields in the guestbook are saved to the database and rendered to other users without HTML encoding, allowing persistent JavaScript injection.',
+    internet_exposed: true,
+    exploit_in_wild: false,
+    exploit_sources: [],
+    priority: null,
+    composite_score: null,
+    status: 'DETECTED',
+    action_taken: null,
     patched_at: null,
   },
 ]

@@ -144,87 +144,110 @@ def _load_services() -> list[dict]:
     return list(by_host.values())
 
 
-def _build_dashboard_findings() -> list[dict]:
-    findings = _load_db_rows("cve_findings")
-    triage_rows = _load_db_rows("triage_results")
-    exposure_rows = _load_db_rows("exposure_checks")
-    intel_rows = _load_db_rows("exploit_intel")
-    remediation_rows = _load_db_rows("remediation_log")
+def _composite_to_priority(score: float | None) -> str | None:
+    """Same bands the Ranking Agent uses for its CRITICAL/HIGH/MEDIUM/LOW labels."""
+    if score is None:
+        return None
+    if score >= 80: return "CRITICAL"
+    if score >= 35: return "HIGH"
+    if score >= 15: return "MEDIUM"
+    return "LOW"
 
-    triage_by_key = {(t.get("cve_id"), t.get("host_ip")): t for t in triage_rows}
-    exposure_by_ip = {e.get("host_ip"): e for e in exposure_rows}
-    intel_by_cve = {i.get("cve_id"): i for i in intel_rows}
-    remediation_by_cve = {}
-    for r in remediation_rows:
-        remediation_by_cve.setdefault(r.get("cve_id"), []).append(r)
+
+def _build_dashboard_findings() -> list[dict]:
+    """
+    Build the dashboard finding rows.
+
+    Authoritative source is pipeline_output.json (the Ranking Agent's JSON).
+    Before any run has happened, falls back to the raw cve_findings table
+    with status=DETECTED and no priority — so the dashboard doesn't lie
+    about insights it doesn't yet have.
+    """
+    findings        = _load_db_rows("cve_findings")
+    exposure_rows   = _load_db_rows("exposure_checks")
+    output          = _load_pipeline_output() or {}
+    ranking         = (output.get("ranking") or {}).get("rankings") or []
+    remediated_list = output.get("remediated") or []
+    deferred_list   = output.get("deferred") or []
+    pull_requests   = output.get("pull_requests") or []
+
+    exposure_by_ip   = {e.get("host_ip"): e for e in exposure_rows}
+    ranking_by_id    = {r.get("vuln_id"): r for r in ranking}
+    remediated_by_id = {r.get("vuln_id"): r for r in remediated_list}
+    deferred_by_id   = {r.get("vuln_id"): r for r in deferred_list}
+    pr_by_id         = {p.get("vuln_id"): p for p in pull_requests}
 
     out: list[dict] = []
     for f in findings:
-        cve_id = f.get("cve_id")
-        host_ip = f.get("host_ip")
-        t = triage_by_key.get((cve_id, host_ip), {})
-        ex = exposure_by_ip.get(host_ip, {})
-        intel = intel_by_cve.get(cve_id, {})
-
-        try:
-            raw_sources = json.loads(intel.get("exploit_sources") or "[]")
-        except json.JSONDecodeError:
-            raw_sources = []
-
-        sources = []
-        for s in raw_sources if isinstance(raw_sources, list) else []:
-            if isinstance(s, dict):
-                sources.append({"title": s.get("title", "Source"), "url": s.get("url", "")})
-            elif isinstance(s, str):
-                sources.append({"title": s, "url": s})
-
-        rem_entries = remediation_by_cve.get(cve_id) or []
-        last_rem = rem_entries[-1] if rem_entries else {}
-        outcome = (last_rem.get("outcome") or "").lower()
-
-        status = "DEFERRED"
-        action_taken = None
-        deferred_reason = None
-        patched_at = None
-
-        if t.get("priority") == "CRITICAL":
-            if outcome in ("success", "dry_run"):
-                status = "PATCHED"
-                action_taken = last_rem.get("action_taken")
-                patched_at = last_rem.get("executed_at")
-            else:
-                status = "AT_RISK"
-        else:
-            status = "DEFERRED"
-            deferred_reason = t.get("reason") or "Deferred by triage policy."
-
-        cvss_score = float(f.get("cvss_score") or 0.0)
+        cve_id   = f.get("cve_id")
+        host_ip  = f.get("host_ip")
         host_name = f.get("host_name") or host_ip
+        cvss_score = float(f.get("cvss_score") or 0.0)
+        ex = exposure_by_ip.get(host_ip, {})
+
+        rank_entry = ranking_by_id.get(cve_id) or {}
+        evidence   = rank_entry.get("evidence") or {}
+        sub_scores = rank_entry.get("sub_scores") or {}
+        composite  = rank_entry.get("composite_score")
+
+        priority = _composite_to_priority(composite)
+
+        # exploit_sources is the live Nimble evidence_urls list
+        evidence_urls = evidence.get("evidence_urls") or []
+        sources = [{"title": u, "url": u} for u in evidence_urls if isinstance(u, str)]
+
+        # status — driven by what _drive_remediation actually did
+        if cve_id in remediated_by_id:
+            status = "PATCHED"
+            action_taken = remediated_by_id[cve_id].get("action")
+            deferred_reason = None
+        elif cve_id in deferred_by_id:
+            status = "DEFERRED"
+            action_taken = None
+            deferred_reason = deferred_by_id[cve_id].get("reason")
+        elif rank_entry:
+            # Ranked but didn't reach remediation (shouldn't normally happen)
+            status = "AT_RISK"
+            action_taken = None
+            deferred_reason = None
+        else:
+            # No ranking yet — pipeline hasn't run for this vuln
+            status = "DETECTED"
+            action_taken = None
+            deferred_reason = None
 
         out.append({
-            # Fields expected by frontend/src/api.js normalization
             "cve_id": cve_id,
             "cvss_score": cvss_score,
             "host_ip": host_ip,
             "host_name": host_name,
-
-            # Extra fields used directly by the dashboard components
             "severity": f.get("severity") or "",
             "description": f.get("description") or "",
-            "internet_exposed": bool(ex.get("is_internet_exposed", 0)),
-            "exploit_in_wild": bool(intel.get("has_active_exploit", 0)),
+            "internet_exposed": bool(ex.get("is_internet_exposed", 0)) or bool(evidence.get("attack_count_1h", 0)),
+            "exploit_in_wild": bool(evidence.get("kev_listed")) or bool(evidence.get("attack_count_1h", 0)),
             "exploit_sources": sources,
-            "priority": t.get("priority") or "LOW",
+            "priority": priority,
+            "composite_score": composite,
+            "rank": rank_entry.get("rank"),
+            "sub_scores": sub_scores,
+            "live_nimble_verified": bool(evidence.get("live_nimble_verified")),
             "status": status,
             "action_taken": action_taken,
             "deferred_reason": deferred_reason,
-            "patched_at": patched_at,
+            "pr_url": (pr_by_id.get(cve_id) or {}).get("pr_url"),
+            "patched_at": None,
         })
 
-    def _prio(v: str) -> int:
-        return 0 if v == "CRITICAL" else 1
+    def _prio_rank(v):
+        order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        return order.get(v, 4)
 
-    out.sort(key=lambda r: (_prio(r.get("priority")), -float(r.get("cvss") or 0.0)))
+    # Rank-known first, then by priority band, then by CVSS desc
+    out.sort(key=lambda r: (
+        r["rank"] if r.get("rank") is not None else 999,
+        _prio_rank(r.get("priority")),
+        -float(r.get("cvss_score") or 0.0),
+    ))
     return out
 
 
@@ -540,11 +563,39 @@ class Handler(BaseHTTPRequestHandler):
         _json_response(self, 404, {"error": "not_found", "path": path})
 
 
+def _bootstrap_clean_state():
+    """
+    On startup, reset to a clean "DETECTED only" state so the dashboard's
+    first load shows raw vulns without ranking insights. Insights then
+    appear after the user clicks Run.
+    """
+    try:
+        from clickhouse.mock_client import init_db, reset_db
+        from agent.tools import fetch_cve_findings
+        init_db()
+        reset_db()
+        fetch_cve_findings()           # seeds cve_findings so dashboard has rows
+    except Exception as e:
+        print(f"[dev_api_server] bootstrap warning: {e}")
+
+    # Clear any stale ranking output from a previous run
+    try:
+        if os.path.exists(PIPELINE_OUTPUT_PATH):
+            os.remove(PIPELINE_OUTPUT_PATH)
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="Local API server for AutoPatch-Agent demo")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--no-bootstrap", action="store_true",
+                        help="Skip the clean-state bootstrap (keep DB + last pipeline output)")
     args = parser.parse_args()
+
+    if not args.no_bootstrap:
+        _bootstrap_clean_state()
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[dev_api_server] Listening on http://{args.host}:{args.port}")
