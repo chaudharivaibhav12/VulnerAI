@@ -62,58 +62,64 @@ export async function triggerRun() {
 }
 
 /**
- * Opens an EventSource to /api/stream.
- * Calls onLine({ ts, level, module, msg }) for each agent log line.
- * Calls onDone() when the agent cycle completes.
- * Returns a cleanup function - call it to close the stream.
- *
- * Falls back to the dummy AGENT_LOG timer if backend is unreachable.
+ * Triggers the real pipeline via POST /api/run, then:
+ * - Streams dummy log entries to the terminal while the pipeline runs
+ * - Polls /api/status every 2s until it leaves RUNNING
+ * - Calls onDone() when the pipeline finishes (HARDENED / ERROR)
+ * - Falls back to pure dummy animation if the backend is unreachable
+ * Returns a cleanup function.
  */
 export function openAgentStream({ onLine, onDone }) {
-  let es
   let alive = true
+  let pollId = null
+  let logId = null
+  let seenRunning = false
 
-  try {
-    es = new EventSource(`${BASE_URL}/api/stream`)
+  // Animate the terminal with dummy log while backend runs
+  let i = 0
+  logId = setInterval(() => {
+    if (!alive) return
+    if (i < AGENT_LOG.length) onLine(AGENT_LOG[i++])
+  }, 260)
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.done) {
-          onDone()
-          es.close()
+  // Kick off the real pipeline then poll for completion
+  fetch(`${BASE_URL}/api/run?reset=1`, { method: 'POST' })
+    .then(() => {
+      pollId = setInterval(async () => {
+        if (!alive) return
+        try {
+          const res = await fetch(`${BASE_URL}/api/status`)
+          if (!res.ok) return
+          const { status } = await res.json()
+          if (status === 'RUNNING') {
+            seenRunning = true
+          } else if (seenRunning) {
+            // Pipeline finished — stop everything and notify
+            clearInterval(pollId)
+            clearInterval(logId)
+            alive = false
+            onDone()
+          }
+        } catch { /* keep polling */ }
+      }, 2000)
+    })
+    .catch(() => {
+      // Backend unreachable — finish after dummy log completes
+      clearInterval(logId)
+      logId = setInterval(() => {
+        if (i < AGENT_LOG.length) {
+          onLine(AGENT_LOG[i++])
         } else {
-          onLine(data)
+          clearInterval(logId)
+          onDone()
         }
-      } catch {
-        // ignore malformed events
-      }
-    }
-
-    es.onerror = () => {
-      es.close()
-      if (alive) _fallbackStream({ onLine, onDone })
-    }
-  } catch {
-    _fallbackStream({ onLine, onDone })
-  }
+      }, 260)
+    })
 
   return () => {
     alive = false
-    es?.close()
+    clearInterval(pollId)
+    clearInterval(logId)
   }
-}
-
-function _fallbackStream({ onLine, onDone }) {
-  let i = 0
-  const id = setInterval(() => {
-    if (i < AGENT_LOG.length) {
-      onLine(AGENT_LOG[i])
-      i++
-    } else {
-      clearInterval(id)
-      onDone()
-    }
-  }, 260)
 }
 

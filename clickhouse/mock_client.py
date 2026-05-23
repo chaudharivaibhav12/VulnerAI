@@ -203,6 +203,23 @@ def run_triage_query() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def replace_triage_results(results: list[dict]):
+    """Delete all existing triage rows and insert the re-ranked set."""
+    conn = _get_conn()
+    cur  = conn.cursor()
+    cur.execute("DELETE FROM triage_results")
+    for r in results:
+        cur.execute("""
+            INSERT INTO triage_results VALUES (?,?,?,?,?,?,?)
+        """, (
+            r["cve_id"], r["host_ip"], r["host_name"], r["cvss_score"],
+            r["priority"], r["reason"],
+            datetime.utcnow().isoformat()
+        ))
+    conn.commit()
+    conn.close()
+
+
 def fetch_all(table: str) -> list[dict]:
     """Generic fetch for dashboard/reporting use."""
     conn = _get_conn()

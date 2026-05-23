@@ -11,7 +11,7 @@ import time
 import requests
 from typing import Any
 
-NIMBLE_BASE_URL = "https://api.webit.live/api/v1/realtime/web"
+NIMBLE_BASE_URL = "https://api.nimbleway.com/v1/realtime/web"
 DEFAULT_TIMEOUT = 30
 MAX_RETRIES = 3
 RETRY_DELAY = 2   # seconds
@@ -41,7 +41,7 @@ class NimbleClient:
             "parse":  parse,
         }
         headers = {
-            "Authorization": f"Basic {self.api_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
         }
 

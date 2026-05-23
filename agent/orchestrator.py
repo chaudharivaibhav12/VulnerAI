@@ -37,19 +37,20 @@ SYSTEM_PROMPT = """You are AutoPatch-Agent, an autonomous security vulnerability
 
 Your job is to run through the following pipeline steps IN ORDER using the tools available to you:
 
-1. Call fetch_cve_findings to get the list of active CVEs from Datadog.
-2. For EACH CVE found, call enrich_exploit_intel to check if there is an active exploit in the wild.
+1. Call fetch_cve_findings to get the list of active vulnerabilities.
+2. For EACH vulnerability found, call enrich_exploit_intel — this runs BOTH live traffic span analysis AND Nimble web intel simultaneously and merges their signals.
 3. For EACH UNIQUE host IP in the findings, call check_internet_exposure to verify if the host is internet-reachable.
-4. Call run_triage to execute the ClickHouse priority query — this classifies each CVE as CRITICAL or LOW.
-5. For EACH CVE classified as CRITICAL, call execute_remediation with the correct host_id and host_ip.
-6. Do NOT call execute_remediation for LOW priority CVEs.
-7. Once all steps are done, respond with a final JSON summary of what you did.
+4. Call run_triage to execute the ClickHouse JOIN query — initial CRITICAL/LOW classification.
+5. Call rerank_triage to apply the multi-signal composite scoring model (span attack frequency + Nimble confidence + exposure + CVSS). This produces CRITICAL/HIGH/MEDIUM/LOW priority bands and replaces the initial triage.
+6. For EACH finding classified as CRITICAL or HIGH by rerank_triage, call execute_remediation.
+7. Do NOT remediate MEDIUM or LOW findings — state why each is deferred.
+8. Once all steps are done, respond with a final JSON summary.
 
 Rules:
-- Be methodical. Process all CVEs before running triage.
-- Never skip enrichment or exposure checks — the triage query depends on this data.
-- Only remediate CRITICAL findings. Explicitly state why LOW findings are deferred.
-- Your final message must be valid JSON with keys: critical_patched, low_deferred, summary.
+- Be methodical. Process all vulnerabilities before running triage.
+- Never skip enrichment or exposure checks — the scoring model depends on this data.
+- Remediate CRITICAL and HIGH findings only.
+- Your final message must be valid JSON with keys: critical_patched, high_patched, deferred, summary.
 """
 
 
@@ -224,34 +225,38 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
                  dispatch_tool, "check_internet_exposure",
                  {"host_ip": f["host_ip"], "port": port})
 
-    triage_result = step("run_triage", dispatch_tool, "run_triage", {})
+    step("run_triage", dispatch_tool, "run_triage", {})
+    rerank_result = step("rerank_triage", dispatch_tool, "rerank_triage", {})
 
-    critical_patched, low_deferred = [], []
-    for t in triage_result["triage_results"]:
-        if t["priority"] == "CRITICAL":
+    critical_patched, high_patched, deferred = [], [], []
+    for t in rerank_result.get("ranked", []):
+        if t["priority"] in ("CRITICAL", "HIGH"):
+            target = critical_patched if t["priority"] == "CRITICAL" else high_patched
             rem = step(f"execute_remediation({t['cve_id']})",
                        dispatch_tool, "execute_remediation", {
                            "cve_id": t["cve_id"],
-                           "host_id": t["host_id"],
+                           "host_id": t.get("host_id", ""),
                            "host_ip": t["host_ip"]
                        })
-            critical_patched.append({
+            target.append({
                 "cve_id": t["cve_id"], "host_ip": t["host_ip"],
+                "priority": t["priority"],
                 "action": rem.get("action_taken"), "outcome": rem.get("outcome")
             })
         else:
-            low_deferred.append({
+            deferred.append({
                 "cve_id": t["cve_id"], "host_ip": t["host_ip"],
-                "reason": t["reason"]
+                "priority": t["priority"], "reason": t["reason"]
             })
 
     summary = {
         "critical_patched": critical_patched,
-        "low_deferred": low_deferred,
+        "high_patched":     high_patched,
+        "deferred":         deferred,
         "summary": (
             f"AutoPatch-Agent completed. "
-            f"{len(critical_patched)} critical CVE(s) remediated, "
-            f"{len(low_deferred)} low-priority CVE(s) deferred."
+            f"{len(critical_patched)} CRITICAL + {len(high_patched)} HIGH finding(s) remediated, "
+            f"{len(deferred)} deferred."
         )
     }
 
