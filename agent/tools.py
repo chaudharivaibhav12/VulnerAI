@@ -225,7 +225,81 @@ def execute_remediation(cve_id: str, host_id: str, host_ip: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# GPT-4o Function Definitions (passed to the LLM)
+# Anthropic Tool Definitions (claude-sonnet-4-6)
+# Uses input_schema instead of parameters
+# ─────────────────────────────────────────────────────────────
+
+TOOL_DEFINITIONS_ANTHROPIC = [
+    {
+        "name": "fetch_cve_findings",
+        "description": "Fetch the list of active CVE vulnerability findings from Datadog Cloud Security Management. Returns CVE IDs, severity scores, affected packages, and host IPs.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "enrich_exploit_intel",
+        "description": "Search the open web via Nimble to determine if a specific CVE has active exploits in the wild. Returns a boolean flag, source URLs, and a summary.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cve_id": {
+                    "type": "string",
+                    "description": "The CVE identifier, e.g. CVE-2024-6387"
+                }
+            },
+            "required": ["cve_id"]
+        }
+    },
+    {
+        "name": "check_internet_exposure",
+        "description": "Use Nimble to probe a host IP and check if it is reachable from the public internet. Returns true if the host is internet-exposed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "host_ip": {
+                    "type": "string",
+                    "description": "The IP address to probe"
+                },
+                "port": {
+                    "type": "integer",
+                    "description": "The port to probe (default 80)"
+                }
+            },
+            "required": ["host_ip"]
+        }
+    },
+    {
+        "name": "run_triage",
+        "description": "Execute the triage query in ClickHouse. Joins CVE findings with exploit intelligence and internet exposure data to classify each vulnerability as CRITICAL or LOW priority.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "execute_remediation",
+        "description": "Execute a remediation script against a CRITICAL target host via AWS SSM. Only call this for CRITICAL priority CVEs. Do NOT call for LOW priority.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cve_id": {
+                    "type": "string",
+                    "description": "The CVE to remediate"
+                },
+                "host_id": {
+                    "type": "string",
+                    "description": "The EC2 instance ID of the target host"
+                },
+                "host_ip": {
+                    "type": "string",
+                    "description": "The IP address of the target host"
+                }
+            },
+            "required": ["cve_id", "host_id", "host_ip"]
+        }
+    }
+]
+
+
+# ─────────────────────────────────────────────────────────────
+# OpenAI Function Definitions (gpt-4o, kept for switching)
+# Uses parameters instead of input_schema
 # ─────────────────────────────────────────────────────────────
 
 TOOL_DEFINITIONS = [

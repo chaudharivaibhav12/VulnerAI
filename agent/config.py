@@ -11,8 +11,13 @@ load_dotenv()
 
 class Config:
     # ── LLM ──────────────────────────────────────────
-    OPENAI_API_KEY: str  = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL: str    = os.getenv("OPENAI_MODEL", "gpt-4o")
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_MODEL: str   = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    # Legacy OpenAI support (kept for easy switching)
+    OPENAI_API_KEY: str    = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str      = os.getenv("OPENAI_MODEL", "gpt-4o")
+    # Set to "anthropic" or "openai"
+    LLM_PROVIDER: str      = os.getenv("LLM_PROVIDER", "anthropic")
 
     # ── Datadog ──────────────────────────────────────
     DATADOG_API_KEY: str = os.getenv("DATADOG_API_KEY", "")
@@ -50,7 +55,9 @@ class Config:
         if cls.USE_MOCKS:
             print("[config] Running in MOCK mode — no real API keys required.")
             return
-        if not cls.OPENAI_API_KEY:
+        if cls.LLM_PROVIDER == "anthropic" and not cls.ANTHROPIC_API_KEY:
+            warnings.append("ANTHROPIC_API_KEY is not set")
+        if cls.LLM_PROVIDER == "openai" and not cls.OPENAI_API_KEY:
             warnings.append("OPENAI_API_KEY is not set")
         if not cls.DATADOG_API_KEY:
             warnings.append("DATADOG_API_KEY is not set")

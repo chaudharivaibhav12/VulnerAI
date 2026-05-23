@@ -1,12 +1,12 @@
 """
-GPT-4o Reasoning Orchestrator
-──────────────────────────────
-Runs a tool-use loop where GPT-4o decides which tool to call next
-based on the pipeline state. The LLM acts as a reasoning agent,
-not just a text generator.
+Reasoning Orchestrator
+──────────────────────
+Runs a tool-use loop where Claude (or GPT-4o) decides which tool to
+call next. Switch providers with LLM_PROVIDER=anthropic|openai in .env.
 
-In mock mode (USE_MOCKS=true / no OPENAI_API_KEY), falls back to a
-deterministic hardcoded pipeline that produces identical output.
+Default: Claude Sonnet (claude-sonnet-4-6)
+
+Falls back to a deterministic mock pipeline if no API key is set.
 """
 
 import json
@@ -17,10 +17,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from agent.config import Config
-from agent.tools import TOOL_DEFINITIONS, dispatch_tool
+from agent.tools import TOOL_DEFINITIONS, TOOL_DEFINITIONS_ANTHROPIC, dispatch_tool
+
+# ── Provider availability checks ─────────────────────────────
+try:
+    import anthropic as _anthropic_sdk
+    ANTHROPIC_AVAILABLE = bool(Config.ANTHROPIC_API_KEY)
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
 
 try:
-    from openai import OpenAI
+    from openai import OpenAI as _OpenAI
     OPENAI_AVAILABLE = bool(Config.OPENAI_API_KEY)
 except ImportError:
     OPENAI_AVAILABLE = False
@@ -46,14 +53,95 @@ Rules:
 """
 
 
+# ─────────────────────────────────────────────────────────────
+# Main entry point — routes to the right provider
+# ─────────────────────────────────────────────────────────────
+
 def run_llm_pipeline(verbose: bool = True) -> dict:
-    """
-    Runs the full pipeline via GPT-4o tool-use loop.
-    Falls back to deterministic mock pipeline if no API key.
-    """
-    if not OPENAI_AVAILABLE or not Config.OPENAI_API_KEY:
-        print("[orchestrator] No OpenAI key — running deterministic mock pipeline.")
+    provider = Config.LLM_PROVIDER.lower()
+
+    if provider == "anthropic" and ANTHROPIC_AVAILABLE:
+        return run_anthropic_pipeline(verbose)
+    elif provider == "openai" and OPENAI_AVAILABLE:
+        return run_openai_pipeline(verbose)
+    else:
+        print(f"[orchestrator] No API key for provider '{provider}' — running mock pipeline.")
         return run_mock_pipeline(verbose)
+
+
+# ─────────────────────────────────────────────────────────────
+# Claude (Anthropic) tool-use loop
+# ─────────────────────────────────────────────────────────────
+
+def run_anthropic_pipeline(verbose: bool = True) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+    messages = [{"role": "user", "content": "Start the AutoPatch pipeline now."}]
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f"  AutoPatch-Agent — Claude {Config.ANTHROPIC_MODEL}")
+        print(f"{'='*60}\n")
+
+    while True:
+        response = client.messages.create(
+            model=Config.ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            tools=TOOL_DEFINITIONS_ANTHROPIC,
+            messages=messages
+        )
+
+        # Append assistant turn
+        messages.append({"role": "assistant", "content": response.content})
+
+        # Check stop reason
+        if response.stop_reason == "end_turn":
+            # Extract final text block
+            final_text = next(
+                (b.text for b in response.content if hasattr(b, "text")), ""
+            )
+            if verbose:
+                print(f"\n[orchestrator] Claude final response:\n{final_text}\n")
+            try:
+                return json.loads(final_text)
+            except json.JSONDecodeError:
+                return {"summary": final_text}
+
+        # Process tool use blocks
+        tool_results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+
+            tool_name = block.name
+            tool_args = block.input
+
+            if verbose:
+                print(f"[orchestrator] → Claude calling: {tool_name}({tool_args})")
+
+            result = dispatch_tool(tool_name, tool_args)
+
+            if verbose:
+                print(f"[orchestrator] ← Result: {json.dumps(result, indent=2)}\n")
+
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": json.dumps(result)
+            })
+
+        # Feed all tool results back in one user turn
+        messages.append({"role": "user", "content": tool_results})
+
+
+# ─────────────────────────────────────────────────────────────
+# OpenAI tool-use loop (kept for easy switching)
+# ─────────────────────────────────────────────────────────────
+
+def run_openai_pipeline(verbose: bool = True) -> dict:
+    from openai import OpenAI
 
     client = OpenAI(api_key=Config.OPENAI_API_KEY)
     messages = [{"role": "system", "content": SYSTEM_PROMPT},
@@ -61,7 +149,7 @@ def run_llm_pipeline(verbose: bool = True) -> dict:
 
     if verbose:
         print(f"\n{'='*60}")
-        print("  AutoPatch-Agent — LLM Pipeline Starting")
+        print(f"  AutoPatch-Agent — OpenAI {Config.OPENAI_MODEL}")
         print(f"{'='*60}\n")
 
     while True:
@@ -75,22 +163,20 @@ def run_llm_pipeline(verbose: bool = True) -> dict:
         msg = response.choices[0].message
         messages.append(msg)
 
-        # No more tool calls — LLM is done
         if not msg.tool_calls:
             if verbose:
-                print(f"\n[orchestrator] Agent final response:\n{msg.content}\n")
+                print(f"\n[orchestrator] GPT final response:\n{msg.content}\n")
             try:
                 return json.loads(msg.content)
             except json.JSONDecodeError:
                 return {"summary": msg.content}
 
-        # Execute all tool calls in this turn
         for tc in msg.tool_calls:
             tool_name = tc.function.name
             tool_args = json.loads(tc.function.arguments)
 
             if verbose:
-                print(f"[orchestrator] → Calling tool: {tool_name}({tool_args})")
+                print(f"[orchestrator] → GPT calling: {tool_name}({tool_args})")
 
             result = dispatch_tool(tool_name, tool_args)
 
@@ -104,15 +190,14 @@ def run_llm_pipeline(verbose: bool = True) -> dict:
             })
 
 
+# ─────────────────────────────────────────────────────────────
+# Deterministic mock pipeline (no API key needed)
+# ─────────────────────────────────────────────────────────────
+
 def run_mock_pipeline(verbose: bool = True) -> dict:
-    """
-    Deterministic pipeline — same logic as the LLM loop but hardcoded.
-    Produces identical ClickHouse state and output without an API key.
-    Perfect for dev and demo without spending tokens.
-    """
     if verbose:
         print(f"\n{'='*60}")
-        print("  AutoPatch-Agent — Mock Pipeline Starting")
+        print("  AutoPatch-Agent — Mock Pipeline")
         print(f"{'='*60}\n")
 
     def step(name, fn, *args, **kwargs):
@@ -123,16 +208,13 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
             print(f"[pipeline] ← {json.dumps(result, indent=2)}\n")
         return result
 
-    # Step 1: Fetch CVEs
     cve_result = step("fetch_cve_findings", dispatch_tool, "fetch_cve_findings", {})
     findings = cve_result["findings"]
 
-    # Step 2: Enrich each CVE
     for f in findings:
         step(f"enrich_exploit_intel({f['cve_id']})",
              dispatch_tool, "enrich_exploit_intel", {"cve_id": f["cve_id"]})
 
-    # Step 3: Check exposure for unique IPs
     seen_ips = set()
     for f in findings:
         if f["host_ip"] not in seen_ips:
@@ -142,13 +224,9 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
                  dispatch_tool, "check_internet_exposure",
                  {"host_ip": f["host_ip"], "port": port})
 
-    # Step 4: Run triage
     triage_result = step("run_triage", dispatch_tool, "run_triage", {})
 
-    # Step 5: Remediate CRITICAL only
-    critical_patched = []
-    low_deferred = []
-
+    critical_patched, low_deferred = [], []
     for t in triage_result["triage_results"]:
         if t["priority"] == "CRITICAL":
             rem = step(f"execute_remediation({t['cve_id']})",
@@ -158,15 +236,12 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
                            "host_ip": t["host_ip"]
                        })
             critical_patched.append({
-                "cve_id": t["cve_id"],
-                "host_ip": t["host_ip"],
-                "action": rem.get("action_taken"),
-                "outcome": rem.get("outcome")
+                "cve_id": t["cve_id"], "host_ip": t["host_ip"],
+                "action": rem.get("action_taken"), "outcome": rem.get("outcome")
             })
         else:
             low_deferred.append({
-                "cve_id": t["cve_id"],
-                "host_ip": t["host_ip"],
+                "cve_id": t["cve_id"], "host_ip": t["host_ip"],
                 "reason": t["reason"]
             })
 
