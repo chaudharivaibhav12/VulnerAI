@@ -22,10 +22,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+# Pipeline prints unicode (→, —, emojis); force UTF-8 stdout/stderr so the
+# background thread that runs the agent doesn't crash on Windows cp1252.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))

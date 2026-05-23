@@ -355,42 +355,45 @@ def run_anthropic_pipeline(verbose: bool = True) -> dict:
         print(f"  Ranking Agent — Claude {Config.ANTHROPIC_MODEL}")
         print(f"{'='*60}\n")
 
+    def _finalize_from_text(text: str) -> dict:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            import re
+            m = re.search(r"\{.*\}", text or "", re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except json.JSONDecodeError:
+                    pass
+            return {"explanation": text or "", "rankings": []}
+
     ranking_json: dict | None = None
     while True:
         response = client.messages.create(
             model=Config.ANTHROPIC_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             system=SYSTEM_PROMPT,
             tools=_ranking_tools_anthropic(),
             messages=messages
         )
         messages.append({"role": "assistant", "content": response.content})
 
-        if response.stop_reason == "end_turn":
-            final_text = next(
-                (b.text for b in response.content if hasattr(b, "text")), ""
+        tool_uses = [b for b in response.content if getattr(b, "type", None) == "tool_use"]
+
+        # If Claude stopped without asking for more tools, treat as final
+        # (covers end_turn, max_tokens, stop_sequence — anything non-tool_use).
+        if response.stop_reason != "tool_use" or not tool_uses:
+            final_text = "".join(
+                b.text for b in response.content if hasattr(b, "text")
             )
             if verbose:
-                print(f"\n[orchestrator] Ranking Agent JSON:\n{final_text}\n")
-            try:
-                ranking_json = json.loads(final_text)
-            except json.JSONDecodeError:
-                # Try to extract JSON block from text
-                import re
-                m = re.search(r"\{.*\}", final_text, re.DOTALL)
-                if m:
-                    try:
-                        ranking_json = json.loads(m.group(0))
-                    except json.JSONDecodeError:
-                        ranking_json = {"explanation": final_text, "rankings": []}
-                else:
-                    ranking_json = {"explanation": final_text, "rankings": []}
+                print(f"\n[orchestrator] Ranking Agent JSON ({response.stop_reason}):\n{final_text}\n")
+            ranking_json = _finalize_from_text(final_text)
             break
 
         tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for block in tool_uses:
             if verbose:
                 print(f"[orchestrator] → Claude calling: {block.name}({block.input})")
             result = dispatch_tool(block.name, block.input)
