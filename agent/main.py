@@ -57,6 +57,15 @@ def print_final_report(summary: dict):
         print(f"    • {item['cve_id']} on {item['host_ip']}")
         print(f"      Reason : {item.get('reason', 'N/A')}")
 
+    prs = summary.get("pull_requests", [])
+    print(f"\n🔀  Pull Requests Created ({len(prs)}):")
+    for pr in prs:
+        status_icon = "✅" if pr.get("pr_status") == "created" else "🧪"
+        print(f"    • {pr['cve_id']}  {status_icon} {pr.get('pr_status','').upper()}")
+        print(f"      Branch : {pr.get('branch', 'N/A')}")
+        print(f"      PR URL : {pr.get('pr_url', 'N/A')}")
+        print(f"      Files  : {pr.get('files_patched', 0)} patched")
+
     print(f"\n📋  Summary: {summary.get('summary', '')}")
     print("\n" + "═" * 60)
 
@@ -74,6 +83,12 @@ def print_final_report(summary: dict):
     for r in rows:
         icon = "✅" if r["outcome"] in ("success", "dry_run") else "❌"
         print(f"  {icon}  {r['cve_id']:<20}  {r['outcome']:<10}  {r['action_taken'][:50]}")
+
+    print("\n  ClickHouse: pr_log")
+    print("─" * 60)
+    rows = fetch_all("pr_log")
+    for r in rows:
+        print(f"  🔀  {r['cve_id']:<20}  {r['pr_status']:<10}  {r['pr_url']}")
 
     print()
 
@@ -102,11 +117,11 @@ def main():
 
     Config.validate()
 
-    # Init (and optionally reset) the mock ClickHouse DB
-    init_db()
-    if args.reset:
-        print("[main] Resetting mock database...\n")
+    # Always start with a clean DB for reproducible runs
+    # (pass --no-reset to keep data from previous runs)
+    if not getattr(args, 'no_reset', False):
         reset_db()
+    init_db()
 
     # Run the pipeline
     summary = run_llm_pipeline(verbose=not args.quiet)

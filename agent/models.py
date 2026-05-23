@@ -84,6 +84,21 @@ class RemediationOutcome:
 
 
 @dataclass
+class PRLog:
+    cve_id: str
+    host_ip: str
+    branch_name: str
+    pr_number: int
+    pr_url: str
+    pr_status: str       # 'created' | 'dry_run' | 'failed'
+    files_patched: int
+    created_at: str
+
+    def to_dict(self) -> dict:
+        return self.__dict__
+
+
+@dataclass
 class PipelineState:
     """Tracks the full pipeline run state — passed between agent steps."""
     cve_findings: list[CVEFinding] = field(default_factory=list)

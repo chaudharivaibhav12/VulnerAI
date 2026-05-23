@@ -42,14 +42,15 @@ Your job is to run through the following pipeline steps IN ORDER using the tools
 3. For EACH UNIQUE host IP in the findings, call check_internet_exposure to verify if the host is internet-reachable.
 4. Call run_triage to execute the ClickHouse priority query — this classifies each CVE as CRITICAL or LOW.
 5. For EACH CVE classified as CRITICAL, call execute_remediation with the correct host_id and host_ip.
-6. Do NOT call execute_remediation for LOW priority CVEs.
-7. Once all steps are done, respond with a final JSON summary of what you did.
+6. For EACH CVE you successfully remediated (CRITICAL only), call create_patch_pr with the same cve_id, host_id, host_ip. This codifies the fix as a GitHub PR so it survives future deployments.
+7. Do NOT call execute_remediation or create_patch_pr for LOW priority CVEs.
+8. Once all steps are done, respond with a final JSON summary of what you did.
 
 Rules:
 - Be methodical. Process all CVEs before running triage.
 - Never skip enrichment or exposure checks — the triage query depends on this data.
 - Only remediate CRITICAL findings. Explicitly state why LOW findings are deferred.
-- Your final message must be valid JSON with keys: critical_patched, low_deferred, summary.
+- Your final message must be valid JSON with keys: critical_patched, low_deferred, pull_requests, summary.
 """
 
 
@@ -226,7 +227,7 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
 
     triage_result = step("run_triage", dispatch_tool, "run_triage", {})
 
-    critical_patched, low_deferred = [], []
+    critical_patched, low_deferred, pull_requests = [], [], []
     for t in triage_result["triage_results"]:
         if t["priority"] == "CRITICAL":
             rem = step(f"execute_remediation({t['cve_id']})",
@@ -237,6 +238,7 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
                        })
             critical_patched.append({
                 "cve_id": t["cve_id"], "host_ip": t["host_ip"],
+                "host_id": t["host_id"],
                 "action": rem.get("action_taken"), "outcome": rem.get("outcome")
             })
         else:
@@ -245,12 +247,30 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
                 "reason": t["reason"]
             })
 
+    for entry in critical_patched:
+        pr = step(f"create_patch_pr({entry['cve_id']})",
+                  dispatch_tool, "create_patch_pr", {
+                      "cve_id": entry["cve_id"],
+                      "host_id": entry["host_id"],
+                      "host_ip": entry["host_ip"]
+                  })
+        pull_requests.append({
+            "cve_id": entry["cve_id"],
+            "pr_url": pr.get("pr_url"),
+            "pr_number": pr.get("pr_number"),
+            "branch": pr.get("branch"),
+            "pr_status": pr.get("pr_status"),
+            "files_patched": pr.get("files_patched"),
+        })
+
     summary = {
         "critical_patched": critical_patched,
         "low_deferred": low_deferred,
+        "pull_requests": pull_requests,
         "summary": (
             f"AutoPatch-Agent completed. "
             f"{len(critical_patched)} critical CVE(s) remediated, "
+            f"{len(pull_requests)} PR(s) created, "
             f"{len(low_deferred)} low-priority CVE(s) deferred."
         )
     }

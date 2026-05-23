@@ -79,6 +79,17 @@ def init_db():
             output          TEXT,
             executed_at     TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS pr_log (
+            cve_id        TEXT,
+            host_ip       TEXT,
+            branch_name   TEXT,
+            pr_number     INTEGER,
+            pr_url        TEXT,
+            pr_status     TEXT,
+            files_patched INTEGER,
+            created_at    TEXT
+        );
     """)
     conn.commit()
     conn.close()
@@ -203,6 +214,70 @@ def run_triage_query() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def insert_pr_log(entry: dict):
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO pr_log VALUES (?,?,?,?,?,?,?,?)
+    """, (
+        entry["cve_id"], entry["host_ip"], entry["branch_name"],
+        entry["pr_number"], entry["pr_url"], entry["pr_status"],
+        entry["files_patched"], entry.get("created_at", datetime.utcnow().isoformat())
+    ))
+    conn.commit()
+    conn.close()
+
+
+def fetch_pr_context(cve_id: str, host_ip: str) -> dict:
+    """
+    Returns all data needed by create_patch_pr in one JOIN:
+    CVE metadata + exploit intel + triage result + latest remediation outcome.
+    """
+    conn = _get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            c.cve_id,
+            c.host_ip,
+            c.host_name,
+            c.host_id,
+            c.package_name,
+            c.affected_version,
+            c.fixed_version,
+            c.cvss_score,
+            c.description,
+            e.has_active_exploit,
+            e.exploit_sources,
+            e.summary       AS exploit_summary,
+            ex.is_internet_exposed,
+            t.priority,
+            t.reason,
+            r.action_taken,
+            r.script_executed,
+            r.outcome       AS remediation_outcome,
+            r.executed_at
+        FROM cve_findings c
+        LEFT JOIN exploit_intel e    ON c.cve_id  = e.cve_id
+        LEFT JOIN exposure_checks ex ON c.host_ip = ex.host_ip
+        LEFT JOIN triage_results  t  ON c.cve_id  = t.cve_id AND c.host_ip = t.host_ip
+        LEFT JOIN remediation_log r  ON c.cve_id  = r.cve_id AND c.host_ip = r.host_ip
+        WHERE c.cve_id = ? AND c.host_ip = ?
+        ORDER BY r.executed_at DESC
+        LIMIT 1
+    """, (cve_id, host_ip))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {}
+    result = dict(row)
+    # exploit_sources is stored as JSON string — deserialise it
+    try:
+        result["exploit_sources"] = json.loads(result.get("exploit_sources") or "[]")
+    except (json.JSONDecodeError, TypeError):
+        result["exploit_sources"] = []
+    return result
+
+
 def fetch_all(table: str) -> list[dict]:
     """Generic fetch for dashboard/reporting use."""
     conn = _get_conn()
@@ -218,7 +293,7 @@ def reset_db():
     conn = _get_conn()
     cur = conn.cursor()
     for table in ["cve_findings", "exploit_intel", "exposure_checks",
-                  "triage_results", "remediation_log"]:
+                  "triage_results", "remediation_log", "pr_log"]:
         cur.execute(f"DELETE FROM {table}")
     conn.commit()
     conn.close()
