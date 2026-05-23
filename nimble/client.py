@@ -41,7 +41,8 @@ class NimbleClient:
             "parse":  parse,
         }
         headers = {
-            "Content-Type": "application/json",
+            "Content-Type":  "application/json",
+            "Authorization": f"Bearer {self.api_key}",
         }
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -50,7 +51,6 @@ class NimbleClient:
                     NIMBLE_BASE_URL,
                     json=payload,
                     headers=headers,
-                    auth=("bridgenow", self.api_key),
                     timeout=DEFAULT_TIMEOUT
                 )
                 resp.raise_for_status()
