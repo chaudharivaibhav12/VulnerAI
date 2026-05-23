@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 const LEVEL = {
   INFO: { color: 'text-v-blue',      label: 'INFO' },
@@ -18,26 +18,13 @@ const MODULE = {
 }
 
 export default function AgentLog({ logs, isRunning }) {
-  const [count, setCount] = useState(0)
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    if (!isRunning) { setCount(logs.length); return }
-    setCount(0)
-    let i = 0
-    const id = setInterval(() => {
-      i += 1
-      setCount(i)
-      if (i >= logs.length) clearInterval(id)
-    }, 260)
-    return () => clearInterval(id)
-  }, [isRunning, logs])
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [count])
+  }, [logs])
 
-  const visible = logs.slice(0, count)
+  const visible = logs
 
   return (
     <div className="flex flex-col h-full">
@@ -45,7 +32,7 @@ export default function AgentLog({ logs, isRunning }) {
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-v-border shrink-0">
         <span className="text-[9px] text-v-dim-text tracking-[0.2em] font-mono">AGENT TERMINAL</span>
         <div className="flex items-center gap-3 text-[9px] font-mono">
-          <span className="text-v-dim-text tabular-nums">{count}/{logs.length}</span>
+          <span className="text-v-dim-text tabular-nums">{logs.length} lines</span>
           {isRunning && <span className="text-v-amber dot-pulse">●</span>}
         </div>
       </div>
@@ -65,15 +52,15 @@ export default function AgentLog({ logs, isRunning }) {
           )
         })}
 
-        {/* Cursor */}
-        {count < logs.length && (
+        {/* Cursor — shown while agent is running */}
+        {isRunning && (
           <div className="flex items-center gap-2 text-[10px] font-mono text-v-amber pl-[84px]">
             <span className="animate-blink">█</span>
           </div>
         )}
 
         {/* Done state */}
-        {count >= logs.length && count > 0 && (
+        {!isRunning && logs.length > 0 && (
           <div className="mt-3 pt-3 border-t border-v-dim text-[9px] font-mono text-v-green flex items-center gap-2">
             <span>●</span>
             <span>CYCLE COMPLETE — SYSTEM POSTURE: HARDENED</span>

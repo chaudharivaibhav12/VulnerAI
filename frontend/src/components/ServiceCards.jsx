@@ -66,7 +66,7 @@ export default function ServiceCards({ services, selected, onSelect }) {
   return (
     <div className="p-4 border-b border-v-border shrink-0">
       <div className="text-[9px] text-v-dim-text tracking-[0.2em] mb-3 font-mono">ATTACK SURFACE</div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-3">
         {services.map(svc => (
           <ServiceCard
             key={svc.id}
