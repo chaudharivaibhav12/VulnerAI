@@ -43,14 +43,15 @@ Your job is to run through the following pipeline steps IN ORDER using the tools
 4. Call run_triage to execute the ClickHouse JOIN query — initial CRITICAL/LOW classification.
 5. Call rerank_triage to apply the multi-signal composite scoring model (span attack frequency + Nimble confidence + exposure + CVSS). This produces CRITICAL/HIGH/MEDIUM/LOW priority bands and replaces the initial triage.
 6. For EACH finding classified as CRITICAL or HIGH by rerank_triage, call execute_remediation.
-7. Do NOT remediate MEDIUM or LOW findings — state why each is deferred.
-8. Once all steps are done, respond with a final JSON summary.
+7. For EACH CRITICAL finding successfully remediated, call create_patch_pr to codify the fix as a GitHub PR so it survives future deployments.
+8. Do NOT remediate MEDIUM or LOW findings — state why each is deferred.
+9. Once all steps are done, respond with a final JSON summary.
 
 Rules:
 - Be methodical. Process all vulnerabilities before running triage.
 - Never skip enrichment or exposure checks — the scoring model depends on this data.
-- Remediate CRITICAL and HIGH findings only.
-- Your final message must be valid JSON with keys: critical_patched, high_patched, deferred, summary.
+- Remediate CRITICAL and HIGH findings. Create PRs for CRITICAL only.
+- Your final message must be valid JSON with keys: critical_patched, high_patched, deferred, pull_requests, summary.
 """
 
 
@@ -228,34 +229,56 @@ def run_mock_pipeline(verbose: bool = True) -> dict:
     step("run_triage", dispatch_tool, "run_triage", {})
     rerank_result = step("rerank_triage", dispatch_tool, "rerank_triage", {})
 
-    critical_patched, high_patched, deferred = [], [], []
+    critical_patched, high_patched, deferred, pull_requests = [], [], [], []
     for t in rerank_result.get("ranked", []):
         if t["priority"] in ("CRITICAL", "HIGH"):
-            target = critical_patched if t["priority"] == "CRITICAL" else high_patched
             rem = step(f"execute_remediation({t['cve_id']})",
                        dispatch_tool, "execute_remediation", {
                            "cve_id": t["cve_id"],
                            "host_id": t.get("host_id", ""),
                            "host_ip": t["host_ip"]
                        })
-            target.append({
+            entry = {
                 "cve_id": t["cve_id"], "host_ip": t["host_ip"],
+                "host_id": t.get("host_id", ""),
                 "priority": t["priority"],
                 "action": rem.get("action_taken"), "outcome": rem.get("outcome")
-            })
+            }
+            if t["priority"] == "CRITICAL":
+                critical_patched.append(entry)
+            else:
+                high_patched.append(entry)
         else:
             deferred.append({
                 "cve_id": t["cve_id"], "host_ip": t["host_ip"],
                 "priority": t["priority"], "reason": t["reason"]
             })
 
+    for entry in critical_patched:
+        pr = step(f"create_patch_pr({entry['cve_id']})",
+                  dispatch_tool, "create_patch_pr", {
+                      "cve_id": entry["cve_id"],
+                      "host_id": entry["host_id"],
+                      "host_ip": entry["host_ip"]
+                  })
+        pull_requests.append({
+            "cve_id": entry["cve_id"],
+            "pr_url": pr.get("pr_url"),
+            "pr_number": pr.get("pr_number"),
+            "branch": pr.get("branch"),
+            "pr_status": pr.get("pr_status"),
+            "files_patched": pr.get("files_patched"),
+        })
+
     summary = {
         "critical_patched": critical_patched,
         "high_patched":     high_patched,
         "deferred":         deferred,
+        "pull_requests":    pull_requests,
         "summary": (
             f"AutoPatch-Agent completed. "
             f"{len(critical_patched)} CRITICAL + {len(high_patched)} HIGH finding(s) remediated, "
+            f"{len(pull_requests)} PR(s) created, "
             f"{len(deferred)} deferred."
         )
     }

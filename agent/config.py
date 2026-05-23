@@ -43,6 +43,11 @@ class Config:
     AWS_ACCESS_KEY_ID: str     = os.getenv("AWS_ACCESS_KEY_ID", "")
     AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
+    # ── GitHub ───────────────────────────────────────
+    GITHUB_TOKEN: str       = os.getenv("GITHUB_TOKEN", "")
+    GITHUB_REPO: str        = os.getenv("GITHUB_REPO", "chaudharivaibhav12/VulnerAI")
+    GITHUB_BASE_BRANCH: str = os.getenv("GITHUB_BASE_BRANCH", "main")
+
     # ── Agent Behaviour ──────────────────────────────
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     DRY_RUN: bool  = os.getenv("DRY_RUN", "true").lower() == "true"

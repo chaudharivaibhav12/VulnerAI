@@ -22,8 +22,14 @@ from clickhouse.mock_client import (
     insert_cve_findings, insert_exploit_intel,
     insert_exposure_checks, insert_triage_results,
     insert_remediation_log, run_triage_query,
-    replace_triage_results, fetch_all
+    replace_triage_results, fetch_all,
+    insert_pr_log, fetch_pr_context,
 )
+from agent.patch_generator import generate_patches
+from agent.github_tools import (
+    get_base_sha, create_branch, commit_file, create_pull_request
+)
+from agent.models import PRLog
 
 
 # ─────────────────────────────────────────────────────────────
@@ -371,6 +377,95 @@ def execute_remediation(cve_id: str, host_id: str, host_ip: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Tool 6: Create Patch PR on GitHub
+# ─────────────────────────────────────────────────────────────
+
+def create_patch_pr(cve_id: str, host_id: str, host_ip: str) -> dict:
+    """
+    Creates a GitHub branch, commits security-hardened patch files, and opens a PR.
+    All metadata is fetched from ClickHouse — call after execute_remediation.
+    DRY_RUN=true (default) logs intent without making real GitHub API calls.
+    """
+    print(f"[tool] create_patch_pr(cve_id={cve_id}, host_ip={host_ip})")
+
+    # Fetch full context from ClickHouse JOIN
+    ctx = fetch_pr_context(cve_id, host_ip)
+    if not ctx:
+        return {
+            "status": "error",
+            "cve_id": cve_id,
+            "error": "No context found in ClickHouse — ensure triage and remediation ran first",
+        }
+
+    # Generate patch files for this CVE
+    patches = generate_patches(cve_id, ctx)
+    if not patches:
+        return {
+            "status": "error",
+            "cve_id": cve_id,
+            "error": "No patch files generated — CVE may not have a known patch spec",
+        }
+
+    pkg_slug = ctx.get("package_name", "package").replace("_", "-").replace(" ", "-")
+    branch_name = f"autopatch/{cve_id}-{pkg_slug}"
+
+    # Create branch from latest base
+    base_sha = get_base_sha()
+    create_branch(branch_name, base_sha)
+
+    # Commit each patch file
+    patch_file_paths = []
+    for patch in patches:
+        msg = f"fix({cve_id}): update {patch['path']} — {ctx.get('package_name', '')} {ctx.get('affected_version', '')} → {ctx.get('fixed_version', '')}"
+        commit_file(branch_name, patch["path"], patch["content"], msg)
+        patch_file_paths.append(patch["path"])
+
+    # Open the PR
+    pr = create_pull_request(
+        branch_name=branch_name,
+        cve_id=cve_id,
+        cvss_score=ctx.get("cvss_score", 0.0),
+        package_name=ctx.get("package_name", ""),
+        affected_version=ctx.get("affected_version", ""),
+        fixed_version=ctx.get("fixed_version", ""),
+        host_name=ctx.get("host_name", ""),
+        host_ip=host_ip,
+        priority=ctx.get("priority", "CRITICAL"),
+        reason=ctx.get("reason", ""),
+        has_active_exploit=bool(ctx.get("has_active_exploit")),
+        is_internet_exposed=bool(ctx.get("is_internet_exposed")),
+        exploit_sources=ctx.get("exploit_sources", []),
+        action_taken=ctx.get("action_taken", ""),
+        remediation_outcome=ctx.get("remediation_outcome", ""),
+        patch_files=patch_file_paths,
+    )
+
+    # Log to ClickHouse pr_log
+    log = PRLog(
+        cve_id=cve_id,
+        host_ip=host_ip,
+        branch_name=branch_name,
+        pr_number=pr["pr_number"],
+        pr_url=pr["pr_url"],
+        pr_status=pr["status"],
+        files_patched=len(patch_file_paths),
+        created_at=datetime.utcnow().isoformat() + "Z",
+    )
+    insert_pr_log(log.to_dict())
+
+    return {
+        "status": "success",
+        "cve_id": cve_id,
+        "branch": branch_name,
+        "pr_number": pr["pr_number"],
+        "pr_url": pr["pr_url"],
+        "pr_status": pr["status"],
+        "files_patched": len(patch_file_paths),
+        "patch_files": patch_file_paths,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Anthropic Tool Definitions (claude-sonnet-4-6)
 # Uses input_schema instead of parameters
 # ─────────────────────────────────────────────────────────────
@@ -432,6 +527,28 @@ TOOL_DEFINITIONS_ANTHROPIC = [
                 "cve_id": {
                     "type": "string",
                     "description": "The CVE to remediate"
+                },
+                "host_id": {
+                    "type": "string",
+                    "description": "The EC2 instance ID of the target host"
+                },
+                "host_ip": {
+                    "type": "string",
+                    "description": "The IP address of the target host"
+                }
+            },
+            "required": ["cve_id", "host_id", "host_ip"]
+        }
+    },
+    {
+        "name": "create_patch_pr",
+        "description": "Create a GitHub Pull Request that codifies the security patch for a CRITICAL CVE. Generates hardened config and dependency file changes, commits them to a new branch, and opens a PR with full security context. Call this AFTER execute_remediation for each CRITICAL CVE.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cve_id": {
+                    "type": "string",
+                    "description": "The CVE identifier, e.g. CVE-2024-6387"
                 },
                 "host_id": {
                     "type": "string",
@@ -541,6 +658,31 @@ TOOL_DEFINITIONS = [
                 "required": ["cve_id", "host_id", "host_ip"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_patch_pr",
+            "description": "Create a GitHub Pull Request that codifies the security patch for a CRITICAL CVE. Generates hardened config and dependency file changes, commits them to a new branch, and opens a PR with full security context. Call this AFTER execute_remediation for each CRITICAL CVE.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cve_id": {
+                        "type": "string",
+                        "description": "The CVE identifier, e.g. CVE-2024-6387"
+                    },
+                    "host_id": {
+                        "type": "string",
+                        "description": "The EC2 instance ID of the target host"
+                    },
+                    "host_ip": {
+                        "type": "string",
+                        "description": "The IP address of the target host"
+                    }
+                },
+                "required": ["cve_id", "host_id", "host_ip"]
+            }
+        }
     }
 ]
 
@@ -551,12 +693,13 @@ TOOL_DEFINITIONS = [
 
 def dispatch_tool(name: str, args: dict) -> dict:
     dispatch = {
-        "fetch_cve_findings":    lambda: fetch_cve_findings(),
-        "enrich_exploit_intel":  lambda: enrich_exploit_intel(**args),
+        "fetch_cve_findings":      lambda: fetch_cve_findings(),
+        "enrich_exploit_intel":    lambda: enrich_exploit_intel(**args),
         "check_internet_exposure": lambda: check_internet_exposure(**args),
-        "run_triage":            lambda: run_triage(),
-        "rerank_triage":         lambda: rerank_triage(),
-        "execute_remediation":   lambda: execute_remediation(**args),
+        "run_triage":              lambda: run_triage(),
+        "rerank_triage":           lambda: rerank_triage(),
+        "execute_remediation":     lambda: execute_remediation(**args),
+        "create_patch_pr":         lambda: create_patch_pr(**args),
     }
     fn = dispatch.get(name)
     if not fn:
