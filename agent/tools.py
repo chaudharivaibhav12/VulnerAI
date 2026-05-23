@@ -200,14 +200,24 @@ def _cwe_number(vuln_id: str, search_terms: list[str] | None) -> str | None:
     return None
 
 
+# In-memory cache for live MITRE CWE fetches. The pages don't change
+# between runs — keeping them in process saves ~3s per vuln per run.
+_NIMBLE_LIVE_CACHE: dict[str, dict | None] = {}
+
+
 def _nimble_live_enrich(cwe_num: str) -> dict | None:
     """
     Live Nimble fetch of the MITRE CWE page for this CWE class.
     Returns parsed signals: kev_hint (bool), wild_hint (bool), observed_cves (int),
     capec_refs (int), evidence_url (str). Returns None if the live fetch fails.
+
+    Results are cached in process memory; subsequent calls for the same CWE
+    return instantly.
     """
     if Config.USE_MOCKS or not os.getenv("NIMBLE_API_KEY"):
         return None
+    if cwe_num in _NIMBLE_LIVE_CACHE:
+        return _NIMBLE_LIVE_CACHE[cwe_num]
     try:
         from nimble.client import NimbleClient
         client = NimbleClient()
@@ -215,20 +225,20 @@ def _nimble_live_enrich(cwe_num: str) -> dict | None:
         print(f"[nimble/live] fetching {url}")
         html = client.fetch_page(url)
         if not html:
+            _NIMBLE_LIVE_CACHE[cwe_num] = None
             return None
-        observed_cves = len(set(re.findall(r"CVE-\d{4}-\d{4,7}", html)))
-        kev_hint      = "KEV" in html
-        wild_hint     = "in the wild" in html.lower()
-        capec_refs    = html.count("CAPEC-")
-        return {
-            "kev_hint":      kev_hint,
-            "wild_hint":     wild_hint,
-            "observed_cves": observed_cves,
-            "capec_refs":    capec_refs,
+        result = {
+            "kev_hint":      "KEV" in html,
+            "wild_hint":     "in the wild" in html.lower(),
+            "observed_cves": len(set(re.findall(r"CVE-\d{4}-\d{4,7}", html))),
+            "capec_refs":    html.count("CAPEC-"),
             "evidence_url":  url,
         }
+        _NIMBLE_LIVE_CACHE[cwe_num] = result
+        return result
     except Exception as e:
         print(f"[nimble/live] enrichment failed: {e!r}")
+        _NIMBLE_LIVE_CACHE[cwe_num] = None
         return None
 
 

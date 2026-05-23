@@ -392,18 +392,26 @@ def run_anthropic_pipeline(verbose: bool = True) -> dict:
             ranking_json = _finalize_from_text(final_text)
             break
 
-        tool_results = []
-        for block in tool_uses:
+        # Execute all tool calls in this turn in parallel — Claude often
+        # batches read_apm + search_nimble for all 4 vulns into one turn,
+        # and the search_nimble live web fetches are ~3s each.
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _run_one(block):
             if verbose:
                 print(f"[orchestrator] → Claude calling: {block.name}({block.input})")
             result = dispatch_tool(block.name, block.input)
             if verbose:
-                print(f"[orchestrator] ← Result: {json.dumps(result, indent=2)}\n")
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": block.id,
-                "content": json.dumps(result)
-            })
+                print(f"[orchestrator] ← {block.name} done\n")
+            return block.id, result
+
+        with ThreadPoolExecutor(max_workers=min(8, len(tool_uses))) as pool:
+            results_by_id = dict(pool.map(_run_one, tool_uses))
+
+        tool_results = [
+            {"type": "tool_result", "tool_use_id": b.id, "content": json.dumps(results_by_id[b.id])}
+            for b in tool_uses
+        ]
         messages.append({"role": "user", "content": tool_results})
 
     return _drive_remediation(ranking_json, catalog_rows, verbose)
