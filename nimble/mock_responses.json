@@ -1,0 +1,84 @@
+{
+  "exploit_intel": {
+    "CVE-2024-6387": {
+      "cve_id": "CVE-2024-6387",
+      "has_active_exploit": true,
+      "exploit_sources": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2024-6387",
+        "https://www.qualys.com/2024/07/01/cve-2024-6387/regresshion.txt",
+        "https://github.com/advisories/GHSA-8h64-qxvr-w3q4",
+        "https://blog.rapid7.com/2024/07/08/openssh-cve-2024-6387-regresshion/"
+      ],
+      "summary": "Actively exploited in the wild. Public PoC available on GitHub. Qualys confirmed 700,000+ vulnerable internet-facing OpenSSH servers. Weaponized exploit code circulating in threat actor forums.",
+      "searched_at": "2024-07-15T08:23:00Z"
+    },
+    "CVE-2023-44487": {
+      "cve_id": "CVE-2023-44487",
+      "has_active_exploit": false,
+      "exploit_sources": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2023-44487",
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+      ],
+      "summary": "No active exploit targeting this specific nginx version detected in recent threat intelligence feeds. Patch available and widely deployed. Risk is primarily DoS, not RCE.",
+      "searched_at": "2024-07-15T08:23:01Z"
+    },
+    "CVE-2021-44228": {
+      "cve_id": "CVE-2021-44228",
+      "has_active_exploit": true,
+      "exploit_sources": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2021-44228",
+        "https://github.com/advisories/GHSA-jfh8-c2jp-hdp9",
+        "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+        "https://www.lunasec.io/docs/blog/log4j-zero-day/"
+      ],
+      "summary": "Log4Shell remains one of the most exploited CVEs ever recorded. Active exploitation continues in 2024 by ransomware groups and nation-state actors targeting unpatched legacy systems.",
+      "searched_at": "2024-07-15T08:23:02Z"
+    },
+    "CVE-2024-3094": {
+      "cve_id": "CVE-2024-3094",
+      "has_active_exploit": false,
+      "exploit_sources": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2024-3094",
+        "https://www.openwall.com/lists/oss-security/2024/03/29/4"
+      ],
+      "summary": "Supply chain backdoor discovered before widespread deployment. No in-the-wild exploitation confirmed. Affected versions (5.6.0, 5.6.1) are rare in production; most distros rolled back automatically.",
+      "searched_at": "2024-07-15T08:23:03Z"
+    },
+    "CVE-2023-23397": {
+      "cve_id": "CVE-2023-23397",
+      "has_active_exploit": false,
+      "exploit_sources": [
+        "https://nvd.nist.gov/vuln/detail/CVE-2023-23397",
+        "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2023-23397"
+      ],
+      "summary": "No active exploit targeting this Linux/libmapi version found. Original CVE targets Microsoft Outlook on Windows. Risk on this host is considered low.",
+      "searched_at": "2024-07-15T08:23:04Z"
+    }
+  },
+  "exposure_checks": {
+    "54.123.45.67": {
+      "host_ip": "54.123.45.67",
+      "port": 22,
+      "is_internet_exposed": true,
+      "response_code": 200,
+      "banner": "SSH-2.0-OpenSSH_9.2p1 Ubuntu-2ubuntu0.2",
+      "checked_at": "2024-07-15T08:24:00Z"
+    },
+    "10.0.1.12": {
+      "host_ip": "10.0.1.12",
+      "port": 80,
+      "is_internet_exposed": false,
+      "response_code": null,
+      "banner": null,
+      "checked_at": "2024-07-15T08:24:01Z"
+    },
+    "10.0.1.23": {
+      "host_ip": "10.0.1.23",
+      "port": 80,
+      "is_internet_exposed": false,
+      "response_code": null,
+      "banner": null,
+      "checked_at": "2024-07-15T08:24:02Z"
+    }
+  }
+}
