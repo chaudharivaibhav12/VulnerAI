@@ -7,6 +7,7 @@ In live mode, calls real APIs (Datadog, Nimble, ClickHouse, SSM).
 
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -179,23 +180,75 @@ def _load_nimble_threat_mock() -> dict:
     return _NIMBLE_THREAT_CACHE
 
 
+def _cwe_number(vuln_id: str, search_terms: list[str] | None) -> str | None:
+    """Best-effort: extract a CWE-NNN number from search_terms or the vuln catalog."""
+    for term in (search_terms or []):
+        m = re.search(r"CWE-(\d+)", term, re.IGNORECASE)
+        if m:
+            return m.group(1)
+    # Fallback: look it up in vuln_catalog.ndjson
+    try:
+        from datadog.vuln_loader import CATALOG_PATH
+        with open(CATALOG_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                row = json.loads(line)
+                if row.get("vuln_id") == vuln_id:
+                    m = re.search(r"CWE-(\d+)", row.get("cwe", ""))
+                    return m.group(1) if m else None
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _nimble_live_enrich(cwe_num: str) -> dict | None:
+    """
+    Live Nimble fetch of the MITRE CWE page for this CWE class.
+    Returns parsed signals: kev_hint (bool), wild_hint (bool), observed_cves (int),
+    capec_refs (int), evidence_url (str). Returns None if the live fetch fails.
+    """
+    if Config.USE_MOCKS or not os.getenv("NIMBLE_API_KEY"):
+        return None
+    try:
+        from nimble.client import NimbleClient
+        client = NimbleClient()
+        url = f"https://cwe.mitre.org/data/definitions/{cwe_num}.html"
+        print(f"[nimble/live] fetching {url}")
+        html = client.fetch_page(url)
+        if not html:
+            return None
+        observed_cves = len(set(re.findall(r"CVE-\d{4}-\d{4,7}", html)))
+        kev_hint      = "KEV" in html
+        wild_hint     = "in the wild" in html.lower()
+        capec_refs    = html.count("CAPEC-")
+        return {
+            "kev_hint":      kev_hint,
+            "wild_hint":     wild_hint,
+            "observed_cves": observed_cves,
+            "capec_refs":    capec_refs,
+            "evidence_url":  url,
+        }
+    except Exception as e:
+        print(f"[nimble/live] enrichment failed: {e!r}")
+        return None
+
+
 def search_nimble(vuln_id: str, search_terms: list[str] | None = None) -> dict:
     """
-    External threat-intelligence signal for a vuln class via Nimble.
-    Returns CISA KEV listing, public exploit count (ExploitDB),
-    GitHub mentions in last 30d, and an underground-chatter score (0..1)
-    derived from forum/paste-site/dark-web monitoring.
+    External threat-intelligence signal for a vuln class.
+    Hybrid: canned baseline from nimble/mock_responses.json::nimble_threat_intel,
+    augmented with LIVE Nimble fetches of the MITRE CWE page for this class.
 
-    In mock mode (or when live Nimble fails), loads canned threat intel from
-    nimble/mock_responses.json::nimble_threat_intel.
+    Live signals merged in when available:
+      - observed_cves on the CWE page → boosts exploit_db_count proxy
+      - "KEV" / "in the wild" keyword hits → confirms kev_listed
+      - the CWE MITRE URL → appended to evidence_urls
+      - live_nimble_verified flag set to true
+
+    Returns canned mock unchanged when live Nimble is disabled or unreachable.
     """
     print(f"[tool] search_nimble(vuln_id={vuln_id}, terms={search_terms or '[]'})")
 
-    mock = _load_nimble_threat_mock().get(vuln_id)
-    if mock:
-        return mock
-
-    return {
+    canned = _load_nimble_threat_mock().get(vuln_id, {
         "vuln_id":             vuln_id,
         "kev_listed":          False,
         "kev_reference_url":   "",
@@ -203,7 +256,39 @@ def search_nimble(vuln_id: str, search_terms: list[str] | None = None) -> dict:
         "github_mentions_30d": 0,
         "underground_chatter": 0.0,
         "evidence_urls":       [],
+    })
+    result = dict(canned)
+    result["live_nimble_verified"] = False
+
+    cwe_num = _cwe_number(vuln_id, search_terms)
+    if not cwe_num:
+        return result
+
+    live = _nimble_live_enrich(cwe_num)
+    if not live:
+        return result
+
+    # Layer live findings on top of canned baseline.
+    # Only "in the wild" is a meaningful signal — bare "KEV" mentions appear
+    # in MITRE references regardless of whether THIS CWE is actually KEV-listed.
+    result["live_nimble_verified"] = True
+    if live["wild_hint"] and not result.get("kev_listed"):
+        result["kev_listed"]        = True
+        result["kev_reference_url"] = live["evidence_url"]
+    # Each observed CVE on the MITRE page is itself evidence of exploitation history.
+    result["exploit_db_count"] = max(int(result.get("exploit_db_count", 0)), live["observed_cves"])
+    # Append the live URL to evidence list (dedupe)
+    existing = list(result.get("evidence_urls", []))
+    if live["evidence_url"] not in existing:
+        existing.insert(0, live["evidence_url"])
+    result["evidence_urls"]   = existing
+    result["live_signals"]    = {
+        "mitre_cve_refs":  live["observed_cves"],
+        "mitre_capec_refs": live["capec_refs"],
+        "kev_hint":        live["kev_hint"],
+        "wild_hint":       live["wild_hint"],
     }
+    return result
 
 
 # ─────────────────────────────────────────────────────────────

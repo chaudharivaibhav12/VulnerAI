@@ -69,9 +69,10 @@ class NimbleClient:
 
     def fetch_page(self, url: str) -> str:
         """Convenience wrapper — returns just the parsed page text."""
-        result = self.request(url, parse=True)
-        return result.get("parsing", {}).get("entities", [{}])[0].get("html", "") \
-               or result.get("html_content", "")
+        result = self.request(url, parse=False)
+        if "error" in result:
+            return ""
+        return result.get("html_content", "") or ""
 
     def probe_host(self, url: str) -> dict:
         """
