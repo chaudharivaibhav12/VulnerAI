@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:       #070d16;
+  --surface:  #0d1117;
+  --raised:   #161b22;
+  --border:   #1e2d3d;
+  --red:      #ff4444;
+  --green:    #00ff88;
+  --amber:    #f0a500;
+  --blue:     #58a6ff;
+  --text:     #c9d1d9;
+  --bright:   #e6edf3;
+  --dim:      #6e7681;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+
+body {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 70% 50% at 10% 0%,   rgba(0,255,136,0.04)  0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(88,166,255,0.04)  0%, transparent 55%),
+    radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 28px 28px;
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar       { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e2d3d; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #2d4a6a; }
+
+/* Scan line — neon green */
+@keyframes scan {
+  0%   { top: -2px; opacity: 0; }
+  4%   { opacity: 1; }
+  96%  { opacity: 1; }
+  100% { top: 100vh; opacity: 0; }
+}
+.scan-line {
+  position: fixed;
+  left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    transparent       0%,
+    rgba(0,255,136,0.5) 30%,
+    rgba(88,166,255,0.3) 70%,
+    transparent       100%
+  );
+  animation: scan 8s linear infinite;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Glass */
+.glass {
+  background: rgba(13,17,23,0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Dot pulse used inline via animate-dot-pulse */
+@keyframes dotPulse {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0.35; }
+}
+.dot-pulse { animation: dotPulse 1.5s ease-in-out infinite; }
+
+/* Report prose */
+.report-prose h1       { font-family: 'Orbitron', monospace; font-size: 0.8rem; letter-spacing: 0.18em; color: var(--green); text-transform: uppercase; margin-bottom: 1rem; }
+.report-prose h2       { font-size: 0.68rem; letter-spacing: 0.12em; color: var(--amber); text-transform: uppercase; margin: 1.2rem 0 0.5rem; border-bottom: 1px solid #1e2d3d; padding-bottom: 0.35rem; }
+.report-prose h3       { font-size: 0.65rem; color: var(--bright); margin: 0.75rem 0 0.3rem; }
+.report-prose p        { font-size: 0.65rem; line-height: 1.75; color: var(--text); margin-bottom: 0.65rem; }
+.report-prose strong   { color: var(--bright); }
+.report-prose a        { color: var(--blue); text-decoration: none; }
+.report-prose a:hover  { text-decoration: underline; color: var(--green); }
+.report-prose code     { font-size: 0.6rem; background: var(--raised); color: var(--amber); padding: 0.1rem 0.35rem; border-radius: 3px; border: 1px solid #1e2d3d; }
+.report-prose pre      { background: var(--raised); border: 1px solid #1e2d3d; border-radius: 4px; padding: 0.75rem; margin: 0.75rem 0; overflow-x: auto; }
+.report-prose pre code { background: none; color: var(--text); padding: 0; border: none; }
+.report-prose table    { width: 100%; border-collapse: collapse; font-size: 0.6rem; margin: 0.75rem 0; }
+.report-prose th       { color: var(--dim); text-align: left; padding: 0.3rem 0.5rem; border-bottom: 1px solid #1e2d3d; font-weight: 500; }
+.report-prose td       { color: var(--text); padding: 0.3rem 0.5rem; border-bottom: 1px solid rgba(30,45,61,0.5); }
+.report-prose hr       { border: none; border-top: 1px solid #1e2d3d; margin: 1rem 0; }
+.report-prose ul,
+.report-prose ol       { padding-left: 1rem; margin-bottom: 0.6rem; }
+.report-prose li       { font-size: 0.65rem; color: var(--text); line-height: 1.75; }
